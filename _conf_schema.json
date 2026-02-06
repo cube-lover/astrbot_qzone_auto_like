@@ -1,0 +1,51 @@
+{
+  "my_qq": {
+    "type": "string",
+    "description": "要监控/点赞的QQ空间所属QQ号",
+    "default": ""
+  },
+  "cookie": {
+    "type": "text",
+    "description": "QQ空间 Cookie（敏感，请勿泄露；需包含 p_skey=...）",
+    "default": "",
+    "obvious_hint": true,
+    "editor_mode": true,
+    "editor_language": "text",
+    "editor_theme": "vs-light"
+  },
+  "poll_interval_sec": {
+    "type": "int",
+    "description": "轮询间隔（秒）",
+    "default": 20
+  },
+  "like_delay_min_sec": {
+    "type": "int",
+    "description": "点赞前随机延迟最小值（秒）",
+    "default": 2
+  },
+  "like_delay_max_sec": {
+    "type": "int",
+    "description": "点赞前随机延迟最大值（秒）",
+    "default": 5
+  },
+  "max_feeds_count": {
+    "type": "int",
+    "description": "每次拉取动态数量 count",
+    "default": 15
+  },
+  "persist_liked": {
+    "type": "bool",
+    "description": "是否保存已处理记录（重启不重复点赞）",
+    "default": true
+  },
+  "enabled": {
+    "type": "bool",
+    "description": "开关：是否启用自动点赞任务（相当于一个按钮）",
+    "default": false
+  },
+  "auto_start": {
+    "type": "bool",
+    "description": "Bot 启动后是否根据 enabled 自动启动任务",
+    "default": false
+  }
+}
