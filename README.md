@@ -13,6 +13,12 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 - WebUI 配置开关：`enabled` / `auto_start`
 - 保留命令控制：`/qz_start`、`/qz_stop`、`/qz_status`
 
+## 交流群
+
+不懂的进 QQ 交流群：`460973561`。
+
+进群前请先给本仓库点 `Star`，不点 `Star` 不给进。
+
 ## 安装
 
 1. 将整个插件目录放入 AstrBot 插件目录（目录名建议：`qzone_auto_like`）
