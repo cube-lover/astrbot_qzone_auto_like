@@ -49,7 +49,7 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 
 示例图：
 
-(示例图已移除)
+![cookie_example](cookie_example.png)
 
 提示：
 - Cookie 属于登录态，千万不要发到群里/仓库/截图里
