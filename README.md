@@ -39,6 +39,22 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 - `my_qq`：空间所属 QQ 号
 - `cookie`：QQ 空间 Cookie（必须包含 `p_skey=...`）
 
+### 如何获取 Cookie（Chrome / Edge）
+
+1. 浏览器打开并登录 QQ 空间：`https://user.qzone.qq.com/<你的QQ号>`
+2. 按 `F12` 打开开发者工具，进入 `Network(网络)`
+3. 刷新页面（`F5`），在请求列表里找到 `feeds3_html_more`（或任意 `user.qzone.qq.com/proxy/domain/...` 请求）
+4. 点开该请求 → `Headers(标头)` → `Request Headers(请求标头)` → 复制 `cookie: ...` 的整行内容
+5. 粘贴到本插件配置里的 `cookie`
+
+示例图：
+
+![cookie_example](cookie_example.png)
+
+提示：
+- Cookie 属于登录态，千万不要发到群里/仓库/截图里
+- 失效后重新按以上步骤复制最新 Cookie
+
 开关：
 - `enabled`：总开关（相当于按钮）
 - `auto_start`：Bot 启动完成后，若 enabled=true 则自动启动后台任务
