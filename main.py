@@ -1139,35 +1139,26 @@ class QzoneAutoLikePlugin(Star):
 
         try:
             fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
-            status, items = await asyncio.to_thread(fetcher.fetch_items, 20, 4)
-            if status != 200 or not items:
+            status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
+            if status != 200 or not posts_obj:
                 diag = getattr(fetcher, "last_diag", "")
                 extra = f" | {diag}" if diag else ""
-                raise RuntimeError(f"fetch feeds failed status={status} items={len(items)}{extra}")
-
-            posts = fetcher.extract_mood_posts(items)
-            if not posts:
-                diag = getattr(fetcher, "last_diag", "")
-                extra = f" | {diag}" if diag else ""
-                raise RuntimeError(f"no mood posts extracted items={len(items)}{extra}")
+                raise RuntimeError(f"fetch feeds failed status={status} posts={len(posts_obj)}{extra}")
 
             idx = n - 1
             if idx < 0:
                 idx = 0
-            if idx >= len(posts):
-                yield event.plain_result(f"当前只抓到 {len(posts)} 条说说，无法评论第 {n} 条")
+            if idx >= len(posts_obj):
+                yield event.plain_result(f"当前只抓到 {len(posts_obj)} 条说说，无法评论第 {n} 条")
                 return
 
-            target = posts[idx]
+            target = posts_obj[idx]
             tid = str(getattr(target, "tid", "") or "").strip()
-            text_content = str(getattr(target, "text", "") or "").strip()
             if not tid:
                 raise RuntimeError("target tid empty")
 
-            if not text_content:
-                text_content = "（说说内容未抓取到，生成一句自然的短评）"
-
-            posts = [{"tid": tid, "text": text_content, "ts": time.time()}]
+            # We don't always have full text from feed fetch; let LLM generate a generic short comment.
+            posts = [{"tid": tid, "text": "（根据该说说内容生成一句自然短评）", "ts": time.time()}]
         except Exception as e:
             logger.info("[Qzone] fetch mood posts failed, fallback to cache: %s", e)
 
