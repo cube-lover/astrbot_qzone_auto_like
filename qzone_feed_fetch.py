@@ -151,16 +151,44 @@ class QzoneFeedFetcher:
                 if not html:
                     continue
 
-                m = re.search(
-                    r"name=\\\"feed_data\\\"[^>]*\bdata-tid=\\\"([^\\\"]+)\\\"[^>]*\bdata-uin=\\\"(\d+)\\\"[^>]*\bdata-topicid=\\\"([^\\\"]+)\\\"",
-                    html,
-                )
-                if not m:
+                tag = ""
+                m = re.search(r"<i[^>]*\bname=\\\"feed_data\\\"[^>]*>", html)
+                if m:
+                    tag = m.group(0)
+
+                if not tag:
+                    # sometimes no escaping
+                    m = re.search(r"<i[^>]*\bname=\"feed_data\"[^>]*>", html)
+                    if m:
+                        tag = m.group(0)
+
+                if not tag:
                     continue
 
-                tid = m.group(1)
-                host_uin = m.group(2)
-                topic_id = m.group(3)
+                tid = ""
+                host_uin = ""
+                topic_id = ""
+
+                for pat, key in (
+                    (r"\bdata-tid=\\\"([^\\\"]+)\\\"", "tid"),
+                    (r"\bdata-uin=\\\"(\d+)\\\"", "uin"),
+                    (r"\bdata-topicid=\\\"([^\\\"]+)\\\"", "topic"),
+                    (r"\bdata-tid=\"([^\"]+)\"", "tid"),
+                    (r"\bdata-uin=\"(\d+)\"", "uin"),
+                    (r"\bdata-topicid=\"([^\"]+)\"", "topic"),
+                ):
+                    mm = re.search(pat, tag)
+                    if not mm:
+                        continue
+                    if key == "tid" and not tid:
+                        tid = mm.group(1)
+                    elif key == "uin" and not host_uin:
+                        host_uin = mm.group(1)
+                    elif key == "topic" and not topic_id:
+                        topic_id = mm.group(1)
+
+                if not tid or not host_uin or not topic_id:
+                    continue
 
                 # Only keep your own posts.
                 if host_uin != self.my_qq:
