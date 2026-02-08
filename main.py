@@ -207,6 +207,7 @@ class QzoneAutoLikePlugin(Star):
 
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
+        self._first_poll = True
 
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
@@ -432,7 +433,13 @@ class QzoneAutoLikePlugin(Star):
                 target = self._target_qq.strip() or self.my_qq
                 limit = self._manual_like_limit if self._manual_like_limit > 0 else self.max_feeds
 
-                attempted, ok = await self._like_once(client, target, limit, ignore_history=False)
+                attempted, ok = await self._like_once(
+                    client,
+                    target,
+                    limit,
+                    ignore_history=self._first_poll,
+                )
+                self._first_poll = False
 
                 if attempted == 0:
                     logger.info("[Qzone] 本轮没有新动态待处理")
@@ -542,7 +549,11 @@ class QzoneAutoLikePlugin(Star):
             return
 
         # 是否强制：忽略历史去重记录（允许重复尝试点赞）
-        force_like = bool(re.search(r"\b(force|f)\b|强制", msg_text, flags=re.IGNORECASE))
+        # 手动命令默认强制；仅当用户显式写 noforce/不强制 才关闭。
+        if re.search(r"\b(noforce|nf)\b|不强制", msg_text, flags=re.IGNORECASE):
+            force_like = False
+        else:
+            force_like = True
 
         # 兜底提取次数：从消息里取最后一个数字
         if count_int is None or count_int == 10:
