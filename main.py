@@ -217,8 +217,9 @@ class QzoneAutoLikePlugin(Star):
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
-        # In-memory: last posted tid for quick delete.
+        # In-memory: last posted tid/content for quick follow-up actions.
         self._last_tid: str = ""
+        self._last_post_text: str = ""
 
         # Optional small on-disk store for recent tids (bounded, overwrites file).
         self._tid_path = Path(__file__).parent / "data" / "recent_tids.json"
@@ -357,6 +358,7 @@ class QzoneAutoLikePlugin(Star):
         if not t:
             return
         self._remember_tid(t)
+        self._last_post_text = (text or "")
         if self._post_store_max <= 0:
             return
         self._recent_posts = [x for x in self._recent_posts if str(x.get("tid")) != t]
@@ -922,8 +924,12 @@ class QzoneAutoLikePlugin(Star):
 
         posts = list(reversed(self._recent_posts))[:n]
         if not posts:
-            yield event.plain_result("当前没有说说内容可供评论（仅支持评论本插件发出的说说；请先用 /post 或 qz_post 发布）")
-            return
+            # Fallback: if we just posted via qz_post, we may only have in-memory last text.
+            if self._last_tid and (self._last_post_text or "").strip() and n == 1:
+                posts = [{"tid": self._last_tid, "text": self._last_post_text, "ts": time.time()}]
+            else:
+                yield event.plain_result("当前说说内容为空，无法评论（请先用 /post 或 qz_post 发布；或检查 post_store_max>0）")
+                return
 
         provider = self.context.get_using_provider(umo=event.unified_msg_origin)
         if not provider:
@@ -992,8 +998,12 @@ class QzoneAutoLikePlugin(Star):
 
         posts = list(reversed(self._recent_posts))[:n]
         if not posts:
-            yield event.plain_result("当前没有说说内容可供评论（仅支持评论本插件发出的说说）")
-            return
+            # Fallback: if we just posted via qz_post, we may only have in-memory last text.
+            if self._last_tid and (self._last_post_text or "").strip() and n == 1:
+                posts = [{"tid": self._last_tid, "text": self._last_post_text, "ts": time.time()}]
+            else:
+                yield event.plain_result("当前说说内容为空，无法评论（请先用 /post 或 qz_post 发布；或检查 post_store_max>0）")
+                return
 
         provider = self.context.get_using_provider(umo=event.unified_msg_origin)
         if not provider:
