@@ -476,8 +476,8 @@ class QzoneAutoLikePlugin(Star):
 
         logger.info("[Qzone] worker 已停止")
 
-    @filter.command("qz_start")
-    async def qz_start(self, event: AstrMessageEvent):
+    @filter.command("start")
+    async def start(self, event: AstrMessageEvent):
         if self._is_running():
             yield event.plain_result("点赞任务已经在运行中（请看后台日志）")
             return
@@ -487,8 +487,8 @@ class QzoneAutoLikePlugin(Star):
         self._task = asyncio.create_task(self._worker())
         yield event.plain_result("🚀 Qzone 自动点赞后台任务已启动（已打开 enabled 开关）")
 
-    @filter.command("qz_stop")
-    async def qz_stop(self, event: AstrMessageEvent):
+    @filter.command("stop")
+    async def stop(self, event: AstrMessageEvent):
         if not self._is_running():
             self._set_enabled(False)
             yield event.plain_result("当前没有运行中的任务（已关闭 enabled 开关）")
@@ -502,22 +502,22 @@ class QzoneAutoLikePlugin(Star):
             pass
         yield event.plain_result("🛑 点赞任务已停止（已关闭 enabled 开关）")
 
-    @filter.command("qz_status")
-    async def qz_status(self, event: AstrMessageEvent):
+    @filter.command("status")
+    async def status(self, event: AstrMessageEvent):
         target = self._target_qq.strip() or self.my_qq
         yield event.plain_result(
             f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}"
         )
 
-    @filter.command("qz_post")
-    async def qz_post(self, event: AstrMessageEvent):
+    @filter.command("post")
+    async def post(self, event: AstrMessageEvent):
         """发一条纯文字说说。
 
         用法：/qz_post 你的内容...
         """
         text = (event.message_str or "").strip()
         # 去掉命令本身（兼容是否带 /）
-        for prefix in ("/qz_post", "qz_post"):
+        for prefix in ("/post", "post", "/qz_post", "qz_post"):
             if text.lower().startswith(prefix):
                 text = text[len(prefix) :].strip()
                 break
