@@ -13,7 +13,7 @@ def _try_extract_json(text: str) -> Optional[dict]:
     if not text:
         return None
 
-    # 尝试直接解析 JSON
+    # 1) 直接解析 JSON
     try:
         obj = json.loads(text)
         if isinstance(obj, dict):
@@ -21,14 +21,39 @@ def _try_extract_json(text: str) -> Optional[dict]:
     except Exception:
         pass
 
-    # 尝试解析 callback({...}) 或脚本中嵌入的 {..}
-    # 这里用一个尽量保守的匹配：抓第一个看起来像 JSON 对象的 {...}
-    m = re.search(r"(\{.*\})", text, flags=re.DOTALL)
+    # 2) 解析 Qzone 常见的 iframe callback 包装：cb({...}) / callback({...})
+    # 先匹配最可能的调用形态，避免用 {.*} 贪婪吞整页 HTML。
+    patterns = [
+        r"\bcb\s*\(\s*(\{.*?\})\s*\)",
+        r"\bcallback\s*\(\s*(\{.*?\})\s*\)",
+        r"frameElement\.callback\s*\(\s*(\{.*?\})\s*\)",
+        r"\bcb\s*\(\s*\"(\{.*?\})\"\s*\)",
+        r"\bcallback\s*\(\s*\"(\{.*?\})\"\s*\)",
+    ]
+
+    for pat in patterns:
+        m = re.search(pat, text, flags=re.DOTALL)
+        if not m:
+            continue
+        blob = m.group(1)
+        try:
+            # 如果是被引号包起来的 JSON，通常会带转义
+            blob = blob.encode("utf-8", errors="ignore").decode("unicode_escape")
+        except Exception:
+            pass
+        try:
+            obj = json.loads(blob)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            continue
+
+    # 3) 最后兜底：抓第一个看起来像 JSON 对象的 {...}（非贪婪）
+    m = re.search(r"(\{.*?\})", text, flags=re.DOTALL)
     if not m:
         return None
 
     blob = m.group(1)
-    # 避免把整页 HTML 都吞进去：截断到合理长度
     if len(blob) > 2000:
         blob = blob[:2000]
 
@@ -349,7 +374,7 @@ class QzoneAutoLikePlugin(Star):
                 await asyncio.sleep(random.randint(self.delay_min, self.delay_max))
 
                 like_status, resp = await asyncio.to_thread(client.send_like, full_key)
-                resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
+                resp_head = resp[:800].replace("\n", " ").replace("\r", " ")
                 logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
 
                 ok = False
@@ -357,6 +382,7 @@ class QzoneAutoLikePlugin(Star):
                 if parsed is not None:
                     code = str(parsed.get("code", ""))
                     msg = parsed.get("message") or parsed.get("msg") or parsed.get("error") or ""
+                    logger.info("[Qzone] like 结果 | code=%s msg=%s", code, str(msg)[:120])
                     if code == "0":
                         ok = True
                     else:
