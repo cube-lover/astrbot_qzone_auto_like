@@ -1495,23 +1495,53 @@ class QzoneAutoLikePlugin(Star):
         yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(drafts)}")
 
     @filter.llm_tool(name="qz_del_comment")
-    async def llm_tool_qz_del_comment(self, event: AstrMessageEvent, topic_id: str = "", comment_id: str = "", comment_uin: str = "", confirm: bool = False):
+    async def llm_tool_qz_del_comment(
+        self,
+        event: AstrMessageEvent,
+        topic_id: str = "",
+        comment_id: str = "",
+        comment_uin: str = "",
+        confirm: bool = False,
+        latest: bool = False,
+        idx: int = 1,
+    ):
         """删除QQ空间评论（删评）。
 
         LLM 使用指南：
-        - topic_id 通常形如 "<hostUin>_<tid>__1"。
-        - comment_id 是评论唯一 id（可从浏览器 delcomment_ugc 的 FormData 里拿到）。
+        - 优先使用 latest=true（删除最近一次成功评论），避免用户必须提供 topic_id/comment_id。
+        - 若用户提供了 topic_id/comment_id，直接按指定删。
 
         Args:
             topic_id(string): 说说 topicId（形如 2267..._tid__1）
             comment_id(string): 评论 commentId
             comment_uin(string): 评论作者 uin（可选；缺省用自己 uin）
             confirm(boolean): 是否确认直接删除；false 时只返回待删除信息
+            latest(boolean): 是否删除最近一次成功评论（基于内存记录，重启清空）
+            idx(integer): 删除倒数第 idx 条记录（1=最近一次，2=上一次...）
         """
+
         t = (topic_id or "").strip()
         cid = (comment_id or "").strip()
+
+        # Support natural language path via latest/idx.
+        if (not t or not cid) and latest:
+            if not self._recent_comment_refs:
+                yield event.plain_result("找不到评论记录（重启后会清空）。请先评论一次，或提供 topic_id/comment_id。")
+                return
+            try:
+                n = int(idx or 1)
+            except Exception:
+                n = 1
+            if n <= 0:
+                n = 1
+            if n > len(self._recent_comment_refs):
+                n = len(self._recent_comment_refs)
+            ref = self._recent_comment_refs[-n]
+            t = str(ref.get("topicId") or "").strip()
+            cid = str(ref.get("commentId") or "").strip()
+
         if not t or not cid:
-            yield event.plain_result("参数不足：需要 topic_id + comment_id")
+            yield event.plain_result("参数不足：需要 topic_id + comment_id（或传 latest=true）")
             return
 
         if not confirm:
