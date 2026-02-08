@@ -80,6 +80,7 @@ class CommentResult:
     message: str
     raw_head: str
     comment_id: str
+    topic_id: str
 
 
 class QzoneCommenter:
@@ -111,9 +112,9 @@ class QzoneCommenter:
         t = (tid or "").strip()
         content = (text or "").strip()
         if not t:
-            return 0, CommentResult(False, None, "empty tid", "", "")
+            return 0, CommentResult(False, None, "empty tid", "", "", "")
         if not content:
-            return 0, CommentResult(False, None, "empty text", "", "")
+            return 0, CommentResult(False, None, "empty text", "", "", "")
 
         url = (
             "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com"
@@ -161,17 +162,17 @@ class QzoneCommenter:
             msg = str(payload.get("message") or payload.get("msg") or "")
             cid = str(payload.get("commentid") or payload.get("comment_id") or payload.get("cid") or "")
             ok = code == 0
-            return res.status_code, CommentResult(ok, code, msg, head, cid)
+            return res.status_code, CommentResult(ok, code, msg, head, cid, topic_id)
 
-        return res.status_code, CommentResult(False, None, "non-json response", head, "")
+        return res.status_code, CommentResult(False, None, "non-json response", head, "", topic_id)
 
     def delete_comment(self, tid: str, comment_id: str) -> Tuple[int, CommentResult]:
         t = (tid or "").strip()
         cid = (comment_id or "").strip()
         if not t:
-            return 0, CommentResult(False, None, "empty tid", "", "")
+            return 0, CommentResult(False, None, "empty tid", "", "", "")
         if not cid:
-            return 0, CommentResult(False, None, "empty comment_id", "", "")
+            return 0, CommentResult(False, None, "empty comment_id", "", "", "")
 
         url = (
             "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com"
@@ -211,6 +212,8 @@ class QzoneCommenter:
                 code = None
             msg = str(payload.get("message") or payload.get("msg") or "")
             ok = code == 0
-            return res.status_code, CommentResult(ok, code, msg, head, cid)
+            topic_id = t if "_" in t else f"{self.my_qq}_{t}__1"
+            return res.status_code, CommentResult(ok, code, msg, head, cid, topic_id)
 
-        return res.status_code, CommentResult(False, None, "non-json response", head, cid)
+        topic_id = t if "_" in t else f"{self.my_qq}_{t}__1"
+        return res.status_code, CommentResult(False, None, "non-json response", head, cid, topic_id)

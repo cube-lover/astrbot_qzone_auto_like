@@ -222,6 +222,13 @@ class QzoneAutoLikePlugin(Star):
         self._last_tid: str = ""
         self._last_post_text: str = ""
 
+        # In-memory: recent successful comment refs for quick deletion (no disk persistence).
+        # Each item: {'topicId': str, 'commentId': str, 'ts': float}
+        self._recent_comment_refs: list[dict] = []
+        self._comment_ref_max = int(self.config.get("comment_ref_max", 50) or 50)
+        if self._comment_ref_max < 0:
+            self._comment_ref_max = 0
+
         # Optional small on-disk store for recent tids (bounded, overwrites file).
         self._tid_path = Path(__file__).parent / "data" / "recent_tids.json"
         self._recent_tids: list[str] = []
@@ -1057,6 +1064,15 @@ class QzoneAutoLikePlugin(Star):
             )
             if status == 200 and result.ok:
                 ok_cnt += 1
+                try:
+                    if getattr(result, "comment_id", "") and getattr(result, "topic_id", ""):
+                        self._recent_comment_refs.append(
+                            {"topicId": str(result.topic_id), "commentId": str(result.comment_id), "ts": time.time()}
+                        )
+                        if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
+                            self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
+                except Exception:
+                    pass
             await asyncio.sleep(delay_min + random.random() * max(0.0, delay_max - delay_min))
 
         yield event.plain_result(f"评论完成：成功={ok_cnt}/{attempted}")
@@ -1077,12 +1093,26 @@ class QzoneAutoLikePlugin(Star):
                 break
 
         parts = [p for p in (text or "").split() if p.strip()]
-        if len(parts) < 2:
-            yield event.plain_result("用法：/删评 <topicId> <commentId>")
-            return
 
-        topic_id = parts[0].strip()
-        comment_id = parts[1].strip()
+        # Simplified mode: /删评 1 -> delete latest successful comment recorded in memory.
+        if len(parts) == 1 and parts[0].isdigit():
+            if not self._recent_comment_refs:
+                yield event.plain_result("没有可删的最近评论记录（请先成功评论一次）")
+                return
+            idx = int(parts[0])
+            if idx <= 0:
+                idx = 1
+            if idx > len(self._recent_comment_refs):
+                idx = len(self._recent_comment_refs)
+            ref = self._recent_comment_refs[-idx]
+            topic_id = str(ref.get("topicId") or "").strip()
+            comment_id = str(ref.get("commentId") or "").strip()
+        else:
+            if len(parts) < 2:
+                yield event.plain_result("用法：/删评 1  或  /删评 <topicId> <commentId>")
+                return
+            topic_id = parts[0].strip()
+            comment_id = parts[1].strip()
 
         if not self.my_qq or not self.cookie:
             yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
