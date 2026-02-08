@@ -331,11 +331,25 @@ class QzoneFeedFetcher:
                     continue
 
                 abstime = 0
-                try:
-                    if "abstime" in item:
-                        abstime = int(str(item.get("abstime") or 0))
-                except Exception:
-                    abstime = 0
+
+                # Prefer data-abstime from feed_data tag; it's present in the embedded HTML and avoids JS-literal parsing quirks.
+                m_ab = re.search(r"\bdata-abstime=\\\"(\d+)\\\"", tag)
+                if not m_ab:
+                    m_ab = re.search(r"\bdata-abstime=\"(\d+)\"", tag)
+                if not m_ab:
+                    m_ab = re.search(r"\bdata-abstime='(\d+)'", tag)
+                if m_ab:
+                    try:
+                        abstime = int(m_ab.group(1))
+                    except Exception:
+                        abstime = 0
+
+                if not abstime:
+                    try:
+                        if "abstime" in item:
+                            abstime = int(str(item.get("abstime") or 0))
+                    except Exception:
+                        abstime = 0
 
                 posts.append(MoodPost(host_uin=host_uin, tid=tid, topic_id=topic_id, abstime=abstime))
 
