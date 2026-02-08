@@ -88,14 +88,10 @@ class QzonePoster:
             cookie = cookie.split(":", 1)[1].strip()
         self.cookie = cookie
 
-        skey_for_gtk = (
-            _extract_cookie_value(cookie, "p_skey")
-            or _extract_cookie_value(cookie, "skey")
-            or _extract_cookie_value(cookie, "media_p_skey")
-        )
-        if not skey_for_gtk:
-            raise ValueError("cookie 缺少 p_skey/skey/media_p_skey（无法计算 g_tk）")
-        self.g_tk = _get_gtk(skey_for_gtk)
+        p_skey = _extract_cookie_value(cookie, "p_skey")
+        if not p_skey:
+            raise ValueError("cookie 缺少 p_skey=...（无法计算 g_tk）")
+        self.g_tk = _get_gtk(p_skey)
 
         self.headers = {
             "user-agent": (
