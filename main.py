@@ -235,19 +235,20 @@ class QzoneAutoLikePlugin(Star):
         if limit > 100:
             limit = 100
 
-        page_size = max(5, min(int(self.max_feeds or 15), 50))
+        # 翻页偏移 start 的语义更接近“条目偏移量”，应与每次请求的 count 保持一致。
+        page_size = 50
         max_pages = 10
 
         liked_ok = 0
         attempted = 0
         seen_this_round: Set[str] = set()
 
+        start = 0
         for page in range(max_pages):
             if attempted >= limit:
                 break
 
-            start = page * page_size
-            fetch_count = max(page_size, min(limit - attempted, 50))
+            fetch_count = page_size
 
             status, keys, text_len = await asyncio.to_thread(client.fetch_keys, fetch_count, target, start)
             logger.info(
@@ -285,6 +286,9 @@ class QzoneAutoLikePlugin(Star):
                     except Exception as e:
                         logger.warning("[Qzone] feeds head 获取失败: %s", e)
                 break
+
+            # 下一页偏移
+            start += fetch_count
 
             progressed = False
             for unikey in sorted(keys):
