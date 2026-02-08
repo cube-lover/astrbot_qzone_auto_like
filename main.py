@@ -952,7 +952,12 @@ class QzoneAutoLikePlugin(Star):
                 "要求：不尬、不营销、不带链接；1句或2句；总字数<=60；只输出评论正文，不要解释。"
             )
             resp = await provider.text_chat(prompt=content, system_prompt=system_prompt, context=[])
-            cmt = (resp.content or "").strip().strip("\"'` ")
+            cmt_raw = getattr(resp, "content", None)
+            if cmt_raw is None:
+                cmt_raw = getattr(resp, "text", None)
+            if cmt_raw is None:
+                cmt_raw = str(resp)
+            cmt = (cmt_raw or "").strip().strip("\"'` ")
             if not cmt:
                 continue
             if len(cmt) > 60:
@@ -1007,7 +1012,12 @@ class QzoneAutoLikePlugin(Star):
             if not tid or not content:
                 continue
             resp = await provider.text_chat(prompt=content, system_prompt=system_prompt, context=[])
-            cmt = (resp.content or "").strip().strip("\"'` ")
+            cmt_raw = getattr(resp, "content", None)
+            if cmt_raw is None:
+                cmt_raw = getattr(resp, "text", None)
+            if cmt_raw is None:
+                cmt_raw = str(resp)
+            cmt = (cmt_raw or "").strip().strip("\"'` ")
             if len(cmt) > 60:
                 cmt = cmt[:60].rstrip()
             drafts.append((tid, cmt))
@@ -1183,8 +1193,13 @@ class QzoneAutoLikePlugin(Star):
 
             ts = req.func_tool or ToolSet()
             ts.add_tool(tool)
-            ts.add_tool(mgr.get_tool("qz_delete"))
-            ts.add_tool(mgr.get_tool("qz_comment"))
+            # AstrBot versions differ: some managers expose get_tool(), others only get_func().
+            try:
+                ts.add_tool(mgr.get_tool("qz_delete"))
+                ts.add_tool(mgr.get_tool("qz_comment"))
+            except Exception:
+                ts.add_tool(mgr.get_func("qz_delete"))
+                ts.add_tool(mgr.get_func("qz_comment"))
             req.func_tool = ts
         except Exception as e:
             logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
