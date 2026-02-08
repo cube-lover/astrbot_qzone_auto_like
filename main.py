@@ -74,7 +74,8 @@ class _QzoneClient:
     def fetch_keys(self, count: int, target_qq: Optional[str] = None) -> Tuple[int, Set[str], int]:
         """拉取目标空间的动态链接集合。
 
-        兼容不同前端：优先使用 feeds_html_act_all（较常见），必要时可再扩展其他 CGI。
+        该接口用于“手动 /点赞”（支持 target_qq + 分页/扩展）。
+        自动轮询不走这里（自动轮询用 legacy 自用接口，见 fetch_keys_self_legacy）。
         """
         target = str(target_qq or self.my_qq).strip()
 
@@ -86,6 +87,27 @@ class _QzoneClient:
             f"&begintime=undefined&icServerTime=&start=0&count={count}"
             f"&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
             f"&r={random.random()}&g_tk={self.g_tk}"
+        )
+        res = requests.get(feeds_url, headers=self.headers, timeout=20)
+        status = res.status_code
+        text_len = len(res.text or "")
+
+        raw_links = re.findall(
+            r"(http[s]?[:\\/]+user\.qzone\.qq\.com[:\\/]+\d+[:\\/]+mood[:\\/]+[a-f0-9]+)",
+            res.text or "",
+        )
+        keys = {link.replace("\\", "") for link in raw_links}
+        return status, keys, text_len
+
+    def fetch_keys_self_legacy(self, count: int) -> Tuple[int, Set[str], int]:
+        """自动轮询专用：旧版 feeds3_html_more（仅拉取自己的说说）。
+
+        你这边实测该接口更稳定能返回 mood 链接；只用于 worker，不影响手动 /点赞。
+        """
+        feeds_url = (
+            "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
+            f"feeds3_html_more?uin={self.my_qq}&scope=0&view=1&flag=1&refresh=1&count={count}"
+            f"&outputhtmlfeed=1&g_tk={self.g_tk}"
         )
         res = requests.get(feeds_url, headers=self.headers, timeout=20)
         status = res.status_code
@@ -287,7 +309,11 @@ class QzoneAutoLikePlugin(Star):
         cur_count = min(ramp_step if ramp_enabled else 10, max_count)
 
         while attempted < limit:
-            status, keys, text_len = await asyncio.to_thread(client.fetch_keys, cur_count, target)
+            if dedup:
+                # 自动轮询：用旧版 self-feeds 接口，更稳定。
+                status, keys, text_len = await asyncio.to_thread(client.fetch_keys_self_legacy, cur_count)
+            else:
+                status, keys, text_len = await asyncio.to_thread(client.fetch_keys, cur_count, target)
             logger.info(
                 "[Qzone] feeds 返回 | target=%s status=%s text_len=%s keys=%d count=%d",
                 target,
