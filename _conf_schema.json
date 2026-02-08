@@ -89,6 +89,12 @@
     "description": "护评轮询间隔（秒）",
     "default": 10
   },
+  "llm_tools_enabled": {
+    "type": "boolean",
+    "default": false,
+    "title": "启用 LLM 工具（qz_post/qz_delete/qz_comment/qz_del_comment）",
+    "description": "默认关闭：更稳定，避免群聊里出现工具调用无回显/误触发。打开后，唤醒词聊天可能会触发工具调用。"
+  },
   "protect_pages": {
     "type": "int",
     "description": "护评每轮最多翻页页数（>=1）",

@@ -1723,10 +1723,14 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.on_llm_request(priority=5)
     async def on_llm_request(self, event: AstrMessageEvent, req, *args):
-        """把 qz_post 工具挂到当前会话的 LLM 请求里。
+        """挂载 Qzone LLM 工具到当前会话。
 
-        说明：这样你用唤醒词聊天时，模型就可以选择调用 qz_post。
+        默认关闭（更稳定）：避免 LLM tool runner 在群聊里误触发、以及出现“工具调用了但无回显”的体验问题。
         """
+
+        if not bool(self.config.get("llm_tools_enabled", False)):
+            return
+
         try:
             mgr = self.context.get_llm_tool_manager()
             tool = mgr.get_func("qz_post") if mgr else None
@@ -1735,7 +1739,6 @@ class QzoneAutoLikePlugin(Star):
 
             ts = req.func_tool or ToolSet()
             ts.add_tool(tool)
-            # AstrBot versions differ: some managers expose get_tool(), others only get_func().
             try:
                 ts.add_tool(mgr.get_tool("qz_delete"))
                 ts.add_tool(mgr.get_tool("qz_comment"))
