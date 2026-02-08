@@ -14,6 +14,7 @@ import requests
 
 from astrbot.api.star import Star, register
 from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api import ToolSet
 from astrbot.api import logger
 
 
@@ -550,6 +551,66 @@ class QzoneAutoLikePlugin(Star):
             logger.error(f"[Qzone] 发说说异常: {e}")
             logger.error(traceback.format_exc())
             yield event.plain_result(f"❌ 异常：{e}")
+
+    @filter.llm_tool(name="qz_post")
+    async def llm_tool_qz_post(self, event: AstrMessageEvent, text: str, confirm: bool = False):
+        """发送QQ空间说说。
+
+        Args:
+            text(string): 要发送的说说正文（纯文字）
+            confirm(boolean): 是否确认直接发送；false 时只返回草稿
+        """
+        content = (text or "").strip()
+        if not content:
+            yield event.plain_result("草稿为空")
+            return
+
+        if not confirm:
+            yield event.plain_result(f"草稿（未发送）：{content}")
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            poster = QzonePoster(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(poster.publish_text, content)
+            logger.info(
+                "[Qzone] llm_tool post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+            if status == 200 and result.ok:
+                yield event.plain_result("✅ 已发送说说")
+            else:
+                hint = result.message or "发送失败（可能 cookie/风控/验证页）"
+                yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
+        except Exception as e:
+            logger.error(f"[Qzone] llm_tool 发说说异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
+
+    @filter.on_llm_request(priority=5)
+    async def on_llm_request(self, event: AstrMessageEvent, req):
+        """把 qz_post 工具挂到当前会话的 LLM 请求里。
+
+        说明：这样你用唤醒词聊天时，模型就可以选择调用 qz_post。
+        """
+        try:
+            mgr = self.context.get_llm_tool_manager()
+            tool = mgr.get_func("qz_post") if mgr else None
+            if not tool:
+                return
+
+            ts = req.func_tool or ToolSet()
+            ts.add_tool(tool)
+            req.func_tool = ts
+        except Exception as e:
+            logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
 
     @filter.command("genpost")
     async def genpost(self, event: AstrMessageEvent):
