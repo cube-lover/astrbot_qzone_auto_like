@@ -178,8 +178,9 @@ class QzoneAutoLikePlugin(Star):
         self.cookie = str(self.config.get("cookie", "")).strip()
         self._target_qq = str(self.config.get("target_qq", "")).strip()
         self.poll_interval = int(self.config.get("poll_interval_sec", 20))
-        self.delay_min = int(self.config.get("like_delay_min_sec", 2))
-        self.delay_max = int(self.config.get("like_delay_max_sec", 5))
+        # 风控友好：默认放慢点赞间隔（可在配置里改回去）
+        self.delay_min = int(self.config.get("like_delay_min_sec", 8))
+        self.delay_max = int(self.config.get("like_delay_max_sec", 15))
         if self.delay_min > self.delay_max:
             self.delay_min, self.delay_max = self.delay_max, self.delay_min
         self.max_feeds = int(self.config.get("max_feeds_count", 15))
@@ -306,7 +307,9 @@ class QzoneAutoLikePlugin(Star):
             attempted += 1
             logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
 
-            await asyncio.sleep(random.randint(self.delay_min, self.delay_max))
+            # 进一步抖动：避免固定间隔触发风控
+            jitter = random.random() * 1.5
+            await asyncio.sleep(random.randint(self.delay_min, self.delay_max) + jitter)
 
             like_status, resp = await asyncio.to_thread(client.send_like, full_key)
             resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
