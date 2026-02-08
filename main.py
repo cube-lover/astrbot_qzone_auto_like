@@ -1014,7 +1014,15 @@ class QzoneAutoLikePlugin(Star):
             m = re.search(r"text='([^']*)'", cmt_txt)
             if m:
                 cmt_txt = m.group(1)
+            else:
+                m = re.search(r"text=\"([^\"]*)\"", cmt_txt)
+                if m:
+                    cmt_txt = m.group(1)
+
             cmt = cmt_txt.strip().strip("\"'` ")
+            # Hard guard: never send object repr into Qzone.
+            if "LLMResponse(" in cmt or "MessageChain(" in cmt:
+                cmt = ""
             if not cmt:
                 continue
             if len(cmt) > 60:
