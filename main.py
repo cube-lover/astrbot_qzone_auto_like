@@ -1132,16 +1132,20 @@ class QzoneAutoLikePlugin(Star):
             n = 1
 
         # /评论 N 语义：评论“第 N 新的说说”（只包含说说），不依赖本地缓存。
-        # 这里优先实时拉取 infocenter feeds3_html_more（只取 mood 可评论项）。
+        # 这里实时拉取“我主页(main)”的说说列表（feeds_html_act_all），不依赖本地缓存。
         if not self.my_qq or not self.cookie:
             yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
             return
 
         try:
             fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
-            status, posts = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
-            if status != 200 or not posts:
-                raise RuntimeError(f"fetch feeds failed status={status} posts={len(posts)}")
+            status, items = await asyncio.to_thread(fetcher.fetch_items, 20, 4)
+            if status != 200 or not items:
+                raise RuntimeError(f"fetch feeds failed status={status} items={len(items)}")
+
+            posts = fetcher.extract_mood_posts(items)
+            if not posts:
+                raise RuntimeError(f"no mood posts extracted items={len(items)}")
 
             idx = n - 1
             if idx < 0:
@@ -1151,17 +1155,15 @@ class QzoneAutoLikePlugin(Star):
                 return
 
             target = posts[idx]
-            tid = target.tid
+            tid = str(getattr(target, "tid", "") or "").strip()
+            text_content = str(getattr(target, "text", "") or "").strip()
+            if not tid:
+                raise RuntimeError("target tid empty")
 
-            commenter = QzoneCommenter(self.my_qq, self.cookie)
+            if not text_content:
+                text_content = "（说说内容未抓取到，生成一句自然的短评）"
 
-            # Auto-generate comment using existing helper.
-            # Reuse old pipeline by setting up a single-item list with tid/text.
-            # (Keep existing LLM generation behavior below by jumping into the old flow.)
-            # If we got here, we have a target tid but not its text; we will still let LLM
-            # generate a generic short comment by feeding a placeholder.
-            distinct = [{"tid": tid, "text": "（说说内容未抓取到，生成一句自然的短评）", "ts": time.time()}]
-            posts = distinct
+            posts = [{"tid": tid, "text": text_content, "ts": time.time()}]
         except Exception as e:
             logger.info("[Qzone] fetch mood posts failed, fallback to cache: %s", e)
 
