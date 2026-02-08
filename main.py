@@ -1004,8 +1004,17 @@ class QzoneAutoLikePlugin(Star):
             if cmt_raw is None:
                 cmt_raw = getattr(resp, "text", None)
             if cmt_raw is None:
+                rc = getattr(resp, "result_chain", None)
+                if rc is not None:
+                    cmt_raw = str(rc)
+            if cmt_raw is None:
                 cmt_raw = str(resp)
-            cmt = (cmt_raw or "").strip().strip("\"'` ")
+
+            cmt_txt = str(cmt_raw or "")
+            m = re.search(r"text='([^']*)'", cmt_txt)
+            if m:
+                cmt_txt = m.group(1)
+            cmt = cmt_txt.strip().strip("\"'` ")
             if not cmt:
                 continue
             if len(cmt) > 60:
@@ -1116,8 +1125,17 @@ class QzoneAutoLikePlugin(Star):
             if cmt_raw is None:
                 cmt_raw = getattr(resp, "text", None)
             if cmt_raw is None:
+                rc = getattr(resp, "result_chain", None)
+                if rc is not None:
+                    cmt_raw = str(rc)
+            if cmt_raw is None:
                 cmt_raw = str(resp)
-            cmt = (cmt_raw or "").strip().strip("\"'` ")
+
+            cmt_txt = str(cmt_raw or "")
+            m = re.search(r"text='([^']*)'", cmt_txt)
+            if m:
+                cmt_txt = m.group(1)
+            cmt = cmt_txt.strip().strip("\"'` ")
             if len(cmt) > 60:
                 cmt = cmt[:60].rstrip()
             drafts.append((tid, cmt))
