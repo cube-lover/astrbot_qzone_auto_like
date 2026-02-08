@@ -346,12 +346,18 @@ class QzoneFeedFetcher:
 
         # Extra diagnostics for production debugging.
         # This is safe: it only prints counts + status, no cookies.
+        # Prefer AstrBot logger when available; fallback to print.
         try:
-            print(
+            msg = (
                 "[Qzone][feed_fetch] "
                 f"status=200 extracted_items={extracted_items} feed_data_tag_hits={feed_data_tag_hits} "
                 f"self_posts={self_posts} out_posts={len(out)}"
             )
+            logger = globals().get("logger")
+            if logger is not None and hasattr(logger, "info"):
+                logger.info(msg)
+            else:
+                print(msg)
         except Exception:
             pass
 
