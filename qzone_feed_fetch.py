@@ -125,6 +125,7 @@ def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
 
     # html field is huge, so non-greedy with DOTALL.
+    # html often contains \x3C escapes and can include raw "..." inside, so single-quote form is the reliable one.
     html_pat = re.compile(r"\bhtml\s*:\s*(?:'((?:\\\\'|[^'])*)'|\"((?:\\\\\"|[^\"])*)\")", re.S)
     abstime_pat = re.compile(r"\babstime\s*:\s*(?:'?(\d+)'?)")
 
@@ -132,8 +133,13 @@ def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
         html = m.group(1) if m.group(1) is not None else m.group(2)
         if html is None:
             continue
+
+        # Unescape common sequences. We mainly need the <i name="feed_data" ...> tag inside html.
+        html = html.replace("\\x3C", "<").replace("\\x3E", ">")
+        html = html.replace("\\/", "/")
+
         # find abstime near this html occurrence (search forward a bit)
-        tail = arr[m.end() : m.end() + 500]
+        tail = arr[m.end() : m.end() + 800]
         am = abstime_pat.search(tail)
         abstime = am.group(1) if am else ""
         items.append({"html": html, "abstime": abstime})
@@ -223,6 +229,9 @@ class QzoneFeedFetcher:
             # Fallback: handle JS object literal (not strict JSON)
             if not data_items:
                 data_items = _extract_feed_items_from_js_callback(text)
+
+            # debug: if we extracted items but later got 0 posts, it's likely tag extraction mismatch.
+            # (Leave detailed debug in logs only on empty result.)
 
             if not data_items:
                 # debug: show keys/types to understand response shape
