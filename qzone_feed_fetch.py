@@ -156,6 +156,7 @@ class QzoneFeedFetcher:
     def __init__(self, my_qq: str, cookie: str):
         self.my_qq = str(my_qq).strip()
         self.last_diag: str = ""
+        self.last_sample_html_head: str = ""
 
         cookie = (cookie or "").strip()
         if cookie.lower().startswith("cookie:"):
@@ -236,6 +237,16 @@ class QzoneFeedFetcher:
 
             feed_data_tag_hits = 0
             self_posts = 0
+
+            # store a tiny sample for diagnostics
+            if data_items:
+                try:
+                    raw_html = str(data_items[0].get("html") or "")
+                    # keep it single-line and short
+                    sample = raw_html[:260].replace("\n", " ").replace("\r", " ")
+                    self.last_sample_html_head = sample
+                except Exception:
+                    self.last_sample_html_head = ""
 
             if not data_items:
                 # debug: show keys/types to understand response shape

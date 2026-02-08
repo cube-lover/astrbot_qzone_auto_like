@@ -1027,7 +1027,10 @@ class QzoneAutoLikePlugin(Star):
             status, posts = await asyncio.to_thread(fetcher.fetch_mood_posts, page_size, pages)
             if status != 200 or not posts:
                 diag = getattr(fetcher, "last_diag", "")
+                sample = getattr(fetcher, "last_sample_html_head", "")
                 extra = f" | {diag}" if diag else ""
+                if sample:
+                    extra += f" | sample={sample}"
                 yield event.plain_result(f"获取失败：status={status} posts={len(posts) if posts else 0}{extra}")
                 return
 
