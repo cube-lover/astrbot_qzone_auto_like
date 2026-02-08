@@ -496,14 +496,19 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result("用法：/点赞 @某人 20  或  /点赞 3483935913 20")
             return
 
-        # 兜底提取次数：从消息里取最后一个数字，并排除目标QQ号本身
-        if count_int is None or count_int == 10:
-            nums = re.findall(r"\b(\d{1,3})\b", msg_text)
-            if nums:
+        # 兜底提取次数：只在明确的“目标QQ号/at 后面跟了次数”的情况下提取。
+        # 避免从 CQ 段/其它文本里误抓到 1~3 位数字导致默认 10 被覆盖成 100。
+        if count_int is None:
+            m_count = None
+            if target_qq:
+                m_count = re.search(rf"{re.escape(target_qq)}\D+(\d{{1,3}})\b", msg_text)
+            if not m_count:
+                m_count = re.search(r"\b点赞\b\D+(\d{1,3})\b", msg_text)
+            if m_count:
                 try:
-                    count_int = int(nums[-1])
+                    count_int = int(m_count.group(1))
                 except Exception:
-                    count_int = count_int or 10
+                    count_int = None
 
         if count_int is None:
             count_int = 10
