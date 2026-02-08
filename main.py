@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Set, Tuple
 
 from .qzone_post import QzonePoster
+from .qzone_comment import QzoneCommenter
 from urllib.parse import quote
 
 import requests
@@ -227,6 +228,14 @@ class QzoneAutoLikePlugin(Star):
             self._tid_store_max = 0
         self._load_recent_tids()
 
+        # Optional store for recent posts (tid->text). Used for auto-comment without extra API calls.
+        self._post_path = Path(__file__).parent / "data" / "recent_posts.json"
+        self._recent_posts: list[dict] = []
+        self._post_store_max = int(self.config.get("post_store_max", 200) or 200)
+        if self._post_store_max < 0:
+            self._post_store_max = 0
+        self._load_recent_posts()
+
         # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
         self._auto_seen: dict[str, float] = {}
 
@@ -308,6 +317,53 @@ class QzoneAutoLikePlugin(Star):
         if len(self._recent_tids) > self._tid_store_max:
             self._recent_tids = self._recent_tids[-self._tid_store_max :]
         self._save_recent_tids()
+
+    def _load_recent_posts(self) -> None:
+        if self._post_store_max <= 0:
+            return
+        if not self._post_path.exists():
+            return
+        try:
+            data = json.loads(self._post_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                items = []
+                for x in data:
+                    if isinstance(x, dict) and str(x.get("tid", "")).strip():
+                        items.append(
+                            {
+                                "tid": str(x.get("tid")),
+                                "text": str(x.get("text", "")),
+                                "ts": float(x.get("ts", 0) or 0),
+                            }
+                        )
+                self._recent_posts = items
+        except Exception as e:
+            logger.warning(f"[Qzone] 加载 recent_posts 失败: {e}")
+
+    def _save_recent_posts(self) -> None:
+        if self._post_store_max <= 0:
+            return
+        try:
+            self._post_path.parent.mkdir(parents=True, exist_ok=True)
+            self._post_path.write_text(
+                json.dumps(self._recent_posts[-self._post_store_max :], ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"[Qzone] 保存 recent_posts 失败: {e}")
+
+    def _remember_post(self, tid: str, text: str) -> None:
+        t = (tid or "").strip()
+        if not t:
+            return
+        self._remember_tid(t)
+        if self._post_store_max <= 0:
+            return
+        self._recent_posts = [x for x in self._recent_posts if str(x.get("tid")) != t]
+        self._recent_posts.append({"tid": t, "text": (text or ""), "ts": time.time()})
+        if len(self._recent_posts) > self._post_store_max:
+            self._recent_posts = self._recent_posts[-self._post_store_max :]
+        self._save_recent_posts()
 
     def _save_records(self) -> None:
         if not self.persist:
@@ -760,7 +816,7 @@ class QzoneAutoLikePlugin(Star):
             if status == 200 and result.ok:
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
                 if getattr(result, "tid", ""):
-                    self._remember_tid(str(result.tid))
+                    self._remember_post(str(result.tid), text)
                 yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
@@ -840,6 +896,150 @@ class QzoneAutoLikePlugin(Star):
             logger.error(f"[Qzone] 删除说说异常: {e}")
             logger.error(traceback.format_exc())
             yield event.plain_result(f"❌ 异常：{e}")
+
+    @filter.command("评论")
+    async def comment(self, event: AstrMessageEvent):
+        """根据最近发布的说说内容发表评论（仅自己的空间）。
+
+        用法：/评论 [N]
+        - 不带 N：评论最近 1 条
+        - 带 N：评论最近 N 条（例如 /评论 4）
+        """
+        text = (event.message_str or "").strip()
+        for prefix in ("/评论", "评论"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        n = 1
+        if text and text.isdigit() and len(text) <= 3:
+            try:
+                n = int(text)
+            except Exception:
+                n = 1
+        if n <= 0:
+            n = 1
+
+        posts = list(reversed(self._recent_posts))[:n]
+        if not posts:
+            yield event.plain_result("当前没有说说内容可供评论（仅支持评论本插件发出的说说；请先用 /post 或 qz_post 发布）")
+            return
+
+        provider = self.context.get_using_provider(umo=event.unified_msg_origin)
+        if not provider:
+            yield event.plain_result("未配置文本生成服务（请在 AstrBot WebUI 添加/启用提供商）")
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        delay_min = float(self.config.get("comment_delay_min_sec", 1) or 1)
+        delay_max = float(self.config.get("comment_delay_max_sec", 2) or 2)
+        if delay_min > delay_max:
+            delay_min, delay_max = delay_max, delay_min
+
+        commenter = QzoneCommenter(self.my_qq, self.cookie)
+        ok_cnt = 0
+        for item in posts:
+            tid = str(item.get("tid") or "").strip()
+            content = str(item.get("text") or "").strip()
+            if not tid or not content:
+                continue
+
+            system_prompt = (
+                "你是中文评论助手。请对QQ空间说说写一条具体、贴合内容的评论。\n"
+                "要求：不尬、不营销、不带链接；1句或2句；总字数<=60；只输出评论正文，不要解释。"
+            )
+            resp = await provider.text_chat(prompt=content, system_prompt=system_prompt, context=[])
+            cmt = (resp.content or "").strip().strip("\"'` ")
+            if not cmt:
+                continue
+            if len(cmt) > 60:
+                cmt = cmt[:60].rstrip()
+
+            status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt)
+            logger.info(
+                "[Qzone] comment 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+            if status == 200 and result.ok:
+                ok_cnt += 1
+            await asyncio.sleep(delay_min + random.random() * max(0.0, delay_max - delay_min))
+
+        yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(posts)}")
+
+    @filter.llm_tool(name="qz_comment")
+    async def llm_tool_qz_comment(self, event: AstrMessageEvent, count: int = 1, confirm: bool = False):
+        """根据最近发布的说说内容生成并发表评论（仅自己的空间）。
+
+        Args:
+            count(int): 评论最近 N 条（默认1；建议 <= 10）
+            confirm(boolean): 是否确认直接发表评论；false 时只返回草稿
+        """
+        n = int(count or 1)
+        if n <= 0:
+            n = 1
+
+        posts = list(reversed(self._recent_posts))[:n]
+        if not posts:
+            yield event.plain_result("当前没有说说内容可供评论（仅支持评论本插件发出的说说）")
+            return
+
+        provider = self.context.get_using_provider(umo=event.unified_msg_origin)
+        if not provider:
+            yield event.plain_result("未配置文本生成服务")
+            return
+
+        system_prompt = (
+            "你是中文评论助手。请对QQ空间说说写一条具体、贴合内容的评论。\n"
+            "要求：不尬、不营销、不带链接；1句或2句；总字数<=60；只输出评论正文，不要解释。"
+        )
+
+        drafts = []
+        for item in posts:
+            content = str(item.get("text") or "").strip()
+            tid = str(item.get("tid") or "").strip()
+            if not tid or not content:
+                continue
+            resp = await provider.text_chat(prompt=content, system_prompt=system_prompt, context=[])
+            cmt = (resp.content or "").strip().strip("\"'` ")
+            if len(cmt) > 60:
+                cmt = cmt[:60].rstrip()
+            drafts.append((tid, cmt))
+
+        if not drafts:
+            yield event.plain_result("生成评论为空")
+            return
+
+        if not confirm:
+            preview = "\n".join([f"tid={t} 评论={c}" for t, c in drafts[:5]])
+            more = "" if len(drafts) <= 5 else f"\n...(+{len(drafts)-5})"
+            yield event.plain_result("草稿（未发送）：\n" + preview + more)
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        delay_min = float(self.config.get("comment_delay_min_sec", 1) or 1)
+        delay_max = float(self.config.get("comment_delay_max_sec", 2) or 2)
+        if delay_min > delay_max:
+            delay_min, delay_max = delay_max, delay_min
+
+        commenter = QzoneCommenter(self.my_qq, self.cookie)
+        ok_cnt = 0
+        for tid, cmt in drafts:
+            status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt)
+            if status == 200 and result.ok:
+                ok_cnt += 1
+            await asyncio.sleep(delay_min + random.random() * max(0.0, delay_max - delay_min))
+
+        yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(drafts)}")
 
     @filter.llm_tool(name="qz_delete")
     async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False, count: int = 0):
@@ -959,7 +1159,7 @@ class QzoneAutoLikePlugin(Star):
             if status == 200 and result.ok:
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
                 if getattr(result, "tid", ""):
-                    self._remember_tid(str(result.tid))
+                    self._remember_post(str(result.tid), content)
                 yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
@@ -984,6 +1184,7 @@ class QzoneAutoLikePlugin(Star):
             ts = req.func_tool or ToolSet()
             ts.add_tool(tool)
             ts.add_tool(mgr.get_tool("qz_delete"))
+            ts.add_tool(mgr.get_tool("qz_comment"))
             req.func_tool = ts
         except Exception as e:
             logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
