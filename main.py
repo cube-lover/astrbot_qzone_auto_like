@@ -8,6 +8,39 @@ from pathlib import Path
 from typing import Optional, Set, Tuple
 from urllib.parse import quote
 
+
+def _try_extract_json(text: str) -> Optional[dict]:
+    if not text:
+        return None
+
+    # 尝试直接解析 JSON
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    # 尝试解析 callback({...}) 或脚本中嵌入的 {..}
+    # 这里用一个尽量保守的匹配：抓第一个看起来像 JSON 对象的 {...}
+    m = re.search(r"(\{.*\})", text, flags=re.DOTALL)
+    if not m:
+        return None
+
+    blob = m.group(1)
+    # 避免把整页 HTML 都吞进去：截断到合理长度
+    if len(blob) > 2000:
+        blob = blob[:2000]
+
+    try:
+        obj = json.loads(blob)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        return None
+
+    return None
+
 import requests
 
 from astrbot.api.star import Star, register
@@ -314,9 +347,17 @@ class QzoneAutoLikePlugin(Star):
                 logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
 
                 ok = False
-                m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
-                if m and m.group(1) == "0":
-                    ok = True
+                parsed = _try_extract_json(resp)
+                if parsed is not None:
+                    code = str(parsed.get("code", ""))
+                    msg = parsed.get("message") or parsed.get("msg") or parsed.get("error") or ""
+                    if code == "0":
+                        ok = True
+                    else:
+                        logger.warning("[Qzone] like 失败 | code=%s msg=%s", code, str(msg)[:120])
+                else:
+                    # 返回 HTML/脚本但解析不到 JSON，多半是跳转/验证/风控页，不应判定成功
+                    logger.warning("[Qzone] like 回包无法解析为JSON（疑似跳转/验证页），按失败处理")
 
                 if ok:
                     liked_ok += 1
