@@ -216,6 +216,9 @@ class QzoneAutoLikePlugin(Star):
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
+        # In-memory: last posted tid for quick delete (clears on restart; no disk persistence).
+        self._last_tid: str = ""
+
         # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
         self._auto_seen: dict[str, float] = {}
 
@@ -710,6 +713,8 @@ class QzoneAutoLikePlugin(Star):
 
             if status == 200 and result.ok:
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
+                if getattr(result, "tid", ""):
+                    self._last_tid = str(result.tid)
                 yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
@@ -734,7 +739,10 @@ class QzoneAutoLikePlugin(Star):
 
         tid = (text or "").strip()
         if not tid:
-            yield event.plain_result("用法：/删除 tid（tid 可从 /post 成功回显里复制）")
+            if self._last_tid:
+                yield event.plain_result(f"用法：/删除 tid（最近一条 tid={self._last_tid}，可直接 /删除 {self._last_tid}）")
+            else:
+                yield event.plain_result("用法：/删除 tid（tid 可从 /post 成功回显里复制）")
             return
 
         if not self.my_qq or not self.cookie:
@@ -764,16 +772,23 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"❌ 异常：{e}")
 
     @filter.llm_tool(name="qz_delete")
-    async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str, confirm: bool = False):
+    async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False):
         """删除QQ空间说说。
 
         Args:
-            tid(string): 说说的 tid
-            confirm(boolean): 是否确认直接删除；false 时只返回待删除的 tid
+            tid(string): 说说的 tid（可选；当 latest=true 时可留空）
+            confirm(boolean): 是否确认直接删除；false 时只返回待删除信息
+            latest(boolean): 是否删除最近一条（仅本插件本次运行内记录；重启会清空）
         """
         t = (tid or "").strip()
+        if latest and not t:
+            t = (self._last_tid or "").strip()
+
         if not t:
-            yield event.plain_result("tid 为空")
+            if self._last_tid:
+                yield event.plain_result(f"tid 为空。最近一条 tid={self._last_tid}（可用 latest=true 或直接传 tid）")
+            else:
+                yield event.plain_result("tid 为空")
             return
 
         if not confirm:
