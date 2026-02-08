@@ -208,6 +208,62 @@ class QzoneAutoLikePlugin(Star):
         self._task = asyncio.create_task(self._worker())
         logger.info("[Qzone] auto_start：任务已自动启动")
 
+    async def _like_once(self, client: _QzoneClient, target_qq: str, limit: int) -> Tuple[int, int]:
+        target = str(target_qq).strip() or self.my_qq
+        if limit <= 0:
+            limit = 10
+        if limit > 100:
+            limit = 100
+
+        status, keys, text_len = await asyncio.to_thread(client.fetch_keys, max(self.max_feeds, limit), target)
+        logger.info(
+            "[Qzone] feeds 返回 | target=%s status=%s text_len=%s keys=%d",
+            target,
+            status,
+            text_len,
+            len(keys),
+        )
+
+        if status != 200:
+            logger.warning("[Qzone] feeds 非200，可能登录失效/风控/重定向（请检查cookie）")
+
+        if not keys:
+            return 0, 0
+
+        liked_ok = 0
+        attempted = 0
+        for unikey in sorted(keys):
+            if attempted >= limit:
+                break
+
+            full_key = unikey if unikey.endswith(".1") else (unikey + ".1")
+            if full_key in self._liked:
+                continue
+
+            attempted += 1
+            logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
+
+            await asyncio.sleep(random.randint(self.delay_min, self.delay_max))
+
+            like_status, resp = await asyncio.to_thread(client.send_like, full_key)
+            resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
+            logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
+
+            ok = False
+            m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
+            if m and m.group(1) == "0":
+                ok = True
+
+            if ok:
+                liked_ok += 1
+                logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
+                self._liked.add(full_key)
+                self._save_records()
+            else:
+                logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
+
+        return attempted, liked_ok
+
     async def _worker(self) -> None:
         if not self.enabled:
             logger.info("[Qzone] enabled=false，worker 不启动")
@@ -230,65 +286,20 @@ class QzoneAutoLikePlugin(Star):
                 logger.info("[%s] 正在侦测...（liked_cache=%d）", _now_hms(), len(self._liked))
 
                 target = self._target_qq.strip() or self.my_qq
-                fetch_count = self.max_feeds
-                if self._manual_like_limit > 0:
-                    fetch_count = max(fetch_count, self._manual_like_limit)
+                limit = self._manual_like_limit if self._manual_like_limit > 0 else self.max_feeds
 
-                status, keys, text_len = await asyncio.to_thread(client.fetch_keys, fetch_count, target)
-                logger.info(
-                    "[Qzone] feeds 返回 | target=%s status=%s text_len=%s keys=%d",
-                    target,
-                    status,
-                    text_len,
-                    len(keys),
-                )
+                attempted, ok = await self._like_once(client, target, limit)
 
-                if status != 200:
-                    logger.warning("[Qzone] feeds 非200，可能登录失效/风控/重定向（请检查cookie）")
-
-                if not keys:
-                    logger.info("[Qzone] 未发现 mood 动态")
-                    await asyncio.sleep(self.poll_interval)
-                    continue
-
-                new_targets = 0
-                liked_this_round = 0
-                limit = self._manual_like_limit if self._manual_like_limit > 0 else 0
-
-                for unikey in sorted(keys):
-                    if limit and liked_this_round >= limit:
-                        break
-
-                    full_key = unikey if unikey.endswith(".1") else (unikey + ".1")
-                    if full_key in self._liked:
-                        continue
-
-                    new_targets += 1
-                    logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
-
-                    await asyncio.sleep(random.randint(self.delay_min, self.delay_max))
-
-                    like_status, resp = await asyncio.to_thread(client.send_like, full_key)
-                    resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
-                    logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
-
-                    ok = False
-                    m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
-                    if m and m.group(1) == "0":
-                        ok = True
-
-                    if ok:
-                        liked_this_round += 1
-                        logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
-                        self._liked.add(full_key)
-                        self._save_records()
-                    else:
-                        logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
-
-                if new_targets == 0:
+                if attempted == 0:
                     logger.info("[Qzone] 本轮没有新动态待处理")
-                if limit:
-                    logger.info("[Qzone] 手动点赞限制=%d，本轮成功点赞=%d", limit, liked_this_round)
+
+                if self._manual_like_limit > 0:
+                    logger.info(
+                        "[Qzone] 手动点赞限制=%d，本轮尝试=%d 成功=%d",
+                        self._manual_like_limit,
+                        attempted,
+                        ok,
+                    )
                     self._manual_like_limit = 0
 
                 await asyncio.sleep(self.poll_interval)
@@ -374,16 +385,20 @@ class QzoneAutoLikePlugin(Star):
             return
 
         self._target_qq = target_qq
-        self._manual_like_limit = count_int
 
-        if not self._is_running():
-            yield event.plain_result(
-                f"已切换目标空间：{target_qq}；本次计划点赞 {count_int} 条。\n"
-                f"当前任务未运行，请先 /qz_start 启动后台任务。"
-            )
+        # 立即执行一次点赞（不依赖后台 worker 是否已启动）
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空，无法点赞")
             return
 
-        yield event.plain_result(f"已切换目标空间：{target_qq}；下一轮最多点赞 {count_int} 条动态（请看后台日志）。")
+        try:
+            client = _QzoneClient(self.my_qq, self.cookie)
+        except Exception as e:
+            yield event.plain_result(f"初始化客户端失败：{e}")
+            return
+
+        attempted, ok = await self._like_once(client, target_qq, count_int)
+        yield event.plain_result(f"目标空间：{target_qq} | 本次尝试={attempted} | 成功={ok}")
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
