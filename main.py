@@ -179,8 +179,8 @@ class QzoneAutoLikePlugin(Star):
         self._target_qq = str(self.config.get("target_qq", "")).strip()
         self.poll_interval = int(self.config.get("poll_interval_sec", 20))
         # 风控友好：默认放慢点赞间隔（可在配置里改回去）
-        self.delay_min = int(self.config.get("like_delay_min_sec", 8))
-        self.delay_max = int(self.config.get("like_delay_max_sec", 15))
+        self.delay_min = int(self.config.get("like_delay_min_sec", 12))
+        self.delay_max = int(self.config.get("like_delay_max_sec", 25))
         if self.delay_min > self.delay_max:
             self.delay_min, self.delay_max = self.delay_max, self.delay_min
         self.max_feeds = int(self.config.get("max_feeds_count", 15))
@@ -465,12 +465,9 @@ class QzoneAutoLikePlugin(Star):
 
         兼容说明：部分适配器会吞掉第二个参数（次数），所以这里会从整条消息里兜底提取。
         """
-        # 兼容平台/适配器把 int 参数当成字符串传入；若解析失败则稍后兜底。
+        # count 参数在部分适配器下不可靠（可能被错误填充）。
+        # 这里仅信任 message_str 里明确出现的次数；否则一律默认 10。
         count_int: Optional[int] = None
-        try:
-            count_int = int(str(count).strip())
-        except Exception:
-            count_int = None
 
         target_qq = ""
         try:
@@ -496,19 +493,17 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result("用法：/点赞 @某人 20  或  /点赞 3483935913 20")
             return
 
-        # 兜底提取次数：只在明确的“目标QQ号/at 后面跟了次数”的情况下提取。
-        # 避免从 CQ 段/其它文本里误抓到 1~3 位数字导致默认 10 被覆盖成 100。
-        if count_int is None:
-            m_count = None
-            if target_qq:
-                m_count = re.search(rf"{re.escape(target_qq)}\D+(\d{{1,3}})\b", msg_text)
-            if not m_count:
-                m_count = re.search(r"\b点赞\b\D+(\d{1,3})\b", msg_text)
-            if m_count:
-                try:
-                    count_int = int(m_count.group(1))
-                except Exception:
-                    count_int = None
+        # 解析次数：只认明确的“目标后面紧跟次数”的格式
+        m_count = None
+        if target_qq:
+            m_count = re.search(rf"{re.escape(target_qq)}\D+(\d{{1,3}})\b", msg_text)
+        if not m_count:
+            m_count = re.search(r"\b点赞\b\D+\d{5,12}\D+(\d{1,3})\b", msg_text)
+        if m_count:
+            try:
+                count_int = int(m_count.group(1))
+            except Exception:
+                count_int = None
 
         if count_int is None:
             count_int = 10
