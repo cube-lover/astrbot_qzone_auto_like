@@ -1,56 +1,43 @@
 {
-  "my_qq": {
-    "type": "string",
-    "description": "要监控/点赞的QQ空间所属QQ号",
-    "default": ""
-  },
-  "cookie": {
-    "type": "text",
-    "description": "QQ空间 Cookie（敏感，请勿泄露；需包含 p_skey=...）",
-    "default": "",
-    "obvious_hint": true,
-    "editor_mode": true,
-    "editor_language": "text",
-    "editor_theme": "vs-light"
-  },
-  "poll_interval_sec": {
-    "type": "int",
-    "description": "轮询间隔（秒）",
-    "default": 20
-  },
-  "like_delay_min_sec": {
-    "type": "int",
-    "description": "点赞前随机延迟最小值（秒）",
-    "default": 2
-  },
-  "like_delay_max_sec": {
-    "type": "int",
-    "description": "点赞前随机延迟最大值（秒）",
-    "default": 5
-  },
-  "max_feeds_count": {
-    "type": "int",
-    "description": "每次拉取动态数量 count",
-    "default": 15
-  },
-  "persist_liked": {
+  "ai_post_enabled": {
     "type": "bool",
-    "description": "是否保存已处理记录（重启不重复点赞）",
+    "description": "启用AI定时发说说任务（需要已配置文本生成提供商）",
+    "default": false
+  },
+  "ai_post_mark": {
+    "type": "bool",
+    "description": "在说说开头标注【AI发送】",
     "default": true
   },
-  "enabled": {
-    "type": "bool",
-    "description": "开关：是否启用自动点赞任务（相当于一个按钮）",
-    "default": false
-  },
-  "auto_start": {
-    "type": "bool",
-    "description": "Bot 启动后是否根据 enabled 自动启动任务",
-    "default": false
-  },
-  "target_qq": {
+  "ai_post_provider_id": {
     "type": "string",
-    "description": "默认目标QQ空间（留空=自己的空间；也可用 /点赞 @某人 临时切换）",
+    "description": "可选：指定LLM提供商ID（留空=跟随当前会话默认提供商）",
+    "default": "",
+    "_special": "select_provider"
+  },
+  "ai_post_interval_min": {
+    "type": "int",
+    "description": "每隔多少分钟生成并发布一条说说（0=关闭interval模式）",
+    "default": 0
+  },
+  "ai_post_prompt": {
+    "type": "text",
+    "description": "interval模式的提示词（prompt），用于生成说说正文",
+    "default": "写一条不尬的QQ空间纯文字说说，1-3句，总字数<=120。"
+  },
+  "ai_post_daily_time": {
+    "type": "string",
+    "description": "每天定时发送时间（HH:MM，24小时制；留空=关闭daily模式）",
     "default": ""
+  },
+  "ai_post_daily_prompt": {
+    "type": "text",
+    "description": "daily模式的提示词（prompt），用于生成说说正文",
+    "default": "写一条今日简短总结（不编造事实），1-3句，总字数<=120。"
+  },
+  "ai_post_delete_after_min": {
+    "type": "int",
+    "description": "发布后多少分钟自动删除（0=不删除）",
+    "default": 0
   }
 }

@@ -72,6 +72,16 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 - `like_ramp_step`：仅在手动 `/点赞` 指定次数 > 10 时生效；feeds 的 count 将按 `10->20->...` 递增（默认 10）
 - `auto_dedup_ttl_sec`：自动轮询去重 TTL（秒，默认 86400=24h；0 表示不去重）
 
+AI 定时发说说（无需命令，按配置自动运行）：
+- `ai_post_enabled`：启用 AI 定时发说说
+- `ai_post_mark`：是否在正文开头加 `【AI发送】`
+- `ai_post_provider_id`：指定使用的 LLM 提供商（留空=用默认）
+- `ai_post_interval_min`：每隔多少分钟发一条（0=关闭 interval）
+- `ai_post_prompt`：interval 模式提示词
+- `ai_post_daily_time`：每天定时（HH:MM，留空=关闭 daily）
+- `ai_post_daily_prompt`：daily 模式提示词
+- `ai_post_delete_after_min`：发布后多少分钟自动删除（0=不删）
+
 可选：
 - `target_qq`：默认目标QQ空间（留空=自己的空间；也可用 `/点赞 ...` 临时切换并立即执行）
 

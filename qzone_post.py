@@ -75,10 +75,12 @@ class PublishResult:
     code: Optional[int]
     message: str
     raw_head: str
+    tid: str
 
 
 class QzonePoster:
     def __init__(self, my_qq: str, cookie: str):
+        # Supports publish + delete.
         self.my_qq = str(my_qq).strip()
 
         cookie = (cookie or "").strip()
@@ -106,7 +108,7 @@ class QzonePoster:
         """Publish plain-text mood."""
         text = (content or "").strip()
         if not text:
-            return 0, PublishResult(False, None, "empty content", "")
+            return 0, PublishResult(False, None, "empty content", "", "")
 
         url = (
             "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com"
@@ -142,7 +144,47 @@ class QzonePoster:
             except Exception:
                 code = None
             msg = str(payload.get("message") or payload.get("msg") or "")
+            tid = str(payload.get("tid") or payload.get("t1") or payload.get("feedid") or "")
             ok = code == 0
-            return res.status_code, PublishResult(ok, code, msg, head)
+            return res.status_code, PublishResult(ok, code, msg, head, tid)
 
-        return res.status_code, PublishResult(False, None, "non-json response", head)
+        return res.status_code, PublishResult(False, None, "non-json response", head, "")
+
+    def delete_by_tid(self, tid: str) -> Tuple[int, PublishResult]:
+        """Delete a mood by tid.
+
+        Note: we rely on the tid returned by publish.
+        """
+        t = (tid or "").strip()
+        if not t:
+            return 0, PublishResult(False, None, "empty tid", "", "")
+
+        url = (
+            "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com"
+            f"/cgi-bin/emotion_cgi_delete_v6?&g_tk={self.g_tk}"
+        )
+
+        data: Dict[str, Any] = {
+            "hostuin": self.my_qq,
+            "tid": t,
+            "t1": t,
+            "format": "fs",
+            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}",
+        }
+
+        res = requests.post(url, headers=self.headers, data=data, timeout=20)
+        head = (res.text or "")[:300].replace("\n", " ").replace("\r", " ")
+
+        payload = _try_extract_json(res.text or "")
+        if isinstance(payload, dict):
+            code = None
+            try:
+                if "code" in payload:
+                    code = int(payload.get("code"))
+            except Exception:
+                code = None
+            msg = str(payload.get("message") or payload.get("msg") or "")
+            ok = code == 0
+            return res.status_code, PublishResult(ok, code, msg, head, t)
+
+        return res.status_code, PublishResult(False, None, "non-json response", head, t)

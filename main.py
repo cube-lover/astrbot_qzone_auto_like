@@ -15,6 +15,7 @@ import requests
 from astrbot.api.star import Star, register
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import ToolSet
+from astrbot.api.message_components import MessageChain
 from astrbot.api import logger
 
 
@@ -196,6 +197,10 @@ class QzoneAutoLikePlugin(Star):
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
 
+        # AI 定时发说说任务（不依赖群聊名单；按配置开关）
+        self._ai_task: Optional[asyncio.Task] = None
+        self._ai_stop = asyncio.Event()
+
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
@@ -279,6 +284,155 @@ class QzoneAutoLikePlugin(Star):
         self._stop_event.clear()
         self._task = asyncio.create_task(self._worker())
         logger.info("[Qzone] auto_start：任务已自动启动")
+
+    def _ai_enabled(self) -> bool:
+        return bool(self.config.get("ai_post_enabled", False))
+
+    async def _maybe_start_ai_task(self) -> None:
+        if not self._ai_enabled():
+            return
+        if self._ai_task is not None and not self._ai_task.done():
+            return
+        self._ai_stop.clear()
+        self._ai_task = asyncio.create_task(self._ai_poster_worker())
+        logger.info("[Qzone] AI post：任务已启动")
+
+    async def _ai_poster_worker(self) -> None:
+        if not self.my_qq or not self.cookie:
+            logger.error("[Qzone] AI post 配置缺失：my_qq 或 cookie 为空")
+            return
+
+        interval_min = int(self.config.get("ai_post_interval_min", 0) or 0)
+        daily_time = str(self.config.get("ai_post_daily_time", "") or "").strip()
+        if interval_min <= 0 and not daily_time:
+            logger.info("[Qzone] AI post：未配置 interval/daily，任务退出")
+            return
+
+        # 固定发到当前登录空间
+        target_umo = None
+        try:
+            # umo 用 None 取默认 provider；发送消息用当前会话不好拿，这里仅后台发，不回群
+            target_umo = None
+        except Exception:
+            target_umo = None
+
+        poster = QzonePoster(self.my_qq, self.cookie)
+
+        async def _gen_and_post(prompt: str) -> None:
+            provider_id = str(self.config.get("ai_post_provider_id", "") or "").strip()
+            provider = None
+            if provider_id:
+                try:
+                    provider = self.context.get_provider_by_id(provider_id)
+                except Exception:
+                    provider = None
+            if not provider:
+                provider = self.context.get_using_provider(umo=target_umo)
+
+            if not provider:
+                logger.error("[Qzone] AI post：未配置文本生成服务")
+                return
+
+            system_prompt = (
+                "你是中文写作助手。请输出QQ空间纯文字说说正文。\n"
+                "要求：不尬、不营销、不带链接；1-3句；总字数<=120；只输出正文，不要解释。"
+            )
+            try:
+                resp = await provider.text_chat(prompt=prompt, system_prompt=system_prompt, context=[])
+                content = (resp.content or "").strip()
+            except Exception as e:
+                logger.error(f"[Qzone] AI post：LLM 调用失败: {e}")
+                return
+
+            if not content:
+                logger.error("[Qzone] AI post：LLM 返回为空")
+                return
+
+            content = content.strip("\"'` ")
+            content = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", content)
+            content = re.sub(r"```\s*$", "", content).strip()
+            if len(content) > 120:
+                content = content[:120].rstrip()
+
+            if bool(self.config.get("ai_post_mark", True)):
+                content = "【AI发送】" + content
+
+            status, result = await asyncio.to_thread(poster.publish_text, content)
+            logger.info(
+                "[Qzone] AI post 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                getattr(result, "tid", ""),
+            )
+
+            delete_after = int(self.config.get("ai_post_delete_after_min", 0) or 0)
+            tid = getattr(result, "tid", "")
+            if status == 200 and result.ok and delete_after > 0 and tid:
+                async def _del_later() -> None:
+                    await asyncio.sleep(delete_after * 60)
+                    ds, dr = await asyncio.to_thread(poster.delete_by_tid, tid)
+                    logger.info(
+                        "[Qzone] AI delete 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
+                        ds,
+                        dr.ok,
+                        dr.code,
+                        dr.message,
+                        tid,
+                    )
+                asyncio.create_task(_del_later())
+
+        # daily_time: HH:MM
+        def _seconds_until(hhmm: str) -> Optional[int]:
+            m = re.match(r"^(\d{1,2}):(\d{2})$", hhmm)
+            if not m:
+                return None
+            hh = int(m.group(1))
+            mm = int(m.group(2))
+            if hh < 0 or hh > 23 or mm < 0 or mm > 59:
+                return None
+            now = time.time()
+            lt = time.localtime(now)
+            # next trigger today
+            tgt = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, hh, mm, 0, lt.tm_wday, lt.tm_yday, lt.tm_isdst))
+            if tgt <= now:
+                tgt += 86400
+            return int(tgt - now)
+
+        next_daily_sleep = _seconds_until(daily_time) if daily_time else None
+
+        while not self._ai_stop.is_set():
+            try:
+                # interval first
+                if interval_min > 0:
+                    prompt = str(self.config.get("ai_post_prompt", "") or "").strip()
+                    if prompt:
+                        await _gen_and_post(prompt)
+                    # sleep with jitter
+                    jitter = random.random() * 3.0
+                    await asyncio.wait_for(self._ai_stop.wait(), timeout=interval_min * 60 + jitter)
+                    continue
+
+                # daily mode
+                if daily_time and next_daily_sleep is not None:
+                    await asyncio.wait_for(self._ai_stop.wait(), timeout=next_daily_sleep)
+                    if self._ai_stop.is_set():
+                        break
+                    prompt = str(self.config.get("ai_post_daily_prompt", "") or "").strip()
+                    if prompt:
+                        await _gen_and_post(prompt)
+                    next_daily_sleep = _seconds_until(daily_time)
+                    continue
+
+                # fallback
+                await asyncio.wait_for(self._ai_stop.wait(), timeout=60)
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.error(f"[Qzone] AI post worker 异常: {e}")
+                logger.error(traceback.format_exc())
+                await asyncio.sleep(5)
 
     async def _like_once(
         self,
@@ -767,6 +921,7 @@ class QzoneAutoLikePlugin(Star):
     async def on_loaded(self):
         # Bot 启动完成后，根据配置决定是否自动启动
         await self._maybe_autostart()
+        await self._maybe_start_ai_task()
 
     async def terminate(self):
         if self._is_running():
@@ -775,5 +930,13 @@ class QzoneAutoLikePlugin(Star):
                 await asyncio.wait_for(self._task, timeout=10)
             except Exception:
                 pass
+
+        if self._ai_task is not None and not self._ai_task.done():
+            self._ai_stop.set()
+            try:
+                await asyncio.wait_for(self._ai_task, timeout=10)
+            except Exception:
+                pass
+
         self._save_records()
         logger.info("[Qzone] 插件卸载完成")
