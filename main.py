@@ -1295,8 +1295,9 @@ class QzoneAutoLikePlugin(Star):
     async def del_comment(self, event: AstrMessageEvent):
         """删除评论（删评）。
 
-        用法：/删评 <topicId> <commentId>
-        示例：/删评 2267154199_17072287a6cb88698f750200__1 2
+        用法：
+        - /删评 1  （删除“最近一次成功评论”的那条）
+        - /删评 <topicId> <commentId>
 
         说明：topicId/commentId 可从浏览器请求 emotion_cgi_delcomment_ugc 的 Form Data 中获取。
         """
@@ -1308,10 +1309,17 @@ class QzoneAutoLikePlugin(Star):
 
         parts = [p for p in (text or "").split() if p.strip()]
 
-        # Simplified mode: /删评 1 -> delete latest successful comment recorded in memory.
+        # Simplified mode:
+        # - /删评 1 -> delete latest successful comment recorded in memory.
+        # Friendly aliases:
+        # - "删除刚刚的评论" / "删除刚刚评论" / "删刚刚的评论" -> same as /删评 1
+        alias_text = "".join(parts)
+        if alias_text in ("删除刚刚的评论", "删除刚刚评论", "删刚刚的评论", "删刚刚评论"):
+            parts = ["1"]
+
         if len(parts) == 1 and parts[0].isdigit():
             if not self._recent_comment_refs:
-                yield event.plain_result("没有可删的最近评论记录（请先成功评论一次）")
+                yield event.plain_result("找不到评论记录（重启后会清空）。请用 /删评 <topicId> <commentId> 或先再评论一次。")
                 return
             idx = int(parts[0])
             if idx <= 0:
