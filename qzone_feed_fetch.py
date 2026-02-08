@@ -139,6 +139,9 @@ class QzoneFeedFetcher:
             if isinstance(payload, dict):
                 d = payload.get("data")
                 if isinstance(d, dict):
+                    # data may be nested one level deeper (data: { data: {...} }) depending on callback wrapper
+                    if isinstance(d.get("data"), dict):
+                        d = d.get("data")
                     # feeds_html_act_all list can be under friend_data or host_data
                     for k in ("friend_data", "host_data"):
                         arr = d.get(k)
@@ -151,6 +154,8 @@ class QzoneFeedFetcher:
                 # debug: show keys/types to understand response shape
                 head = (text or "")[:500].replace("\n", " ").replace("\r", " ")
                 data_obj = payload.get("data") if isinstance(payload, dict) else None
+                if isinstance(data_obj, dict) and isinstance(data_obj.get("data"), dict):
+                    data_obj = data_obj.get("data")
                 keys = []
                 if isinstance(data_obj, dict):
                     keys = sorted(list(data_obj.keys()))
