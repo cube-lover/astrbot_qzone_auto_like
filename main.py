@@ -985,16 +985,22 @@ class QzoneAutoLikePlugin(Star):
             n = 1
 
         # Latest-first; de-dup by tid while preserving recency order.
-        posts = []
+        distinct = []
         seen_tid = set()
         for item in reversed(self._recent_posts):
             tid = str(item.get("tid") or "").strip()
             if not tid or tid in seen_tid:
                 continue
             seen_tid.add(tid)
-            posts.append(item)
-            if len(posts) >= n:
-                break
+            distinct.append(item)
+
+        # Semantic: /评论 1 -> latest; /评论 2 -> 2nd latest; /评论 N -> Nth latest.
+        posts = []
+        idx = n - 1
+        if idx < 0:
+            idx = 0
+        if distinct and idx < len(distinct):
+            posts = [distinct[idx]]
 
         if not posts:
             if self._last_tid and (self._last_post_text or "").strip() and n == 1:
