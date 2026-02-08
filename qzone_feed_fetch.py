@@ -82,7 +82,7 @@ def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
         return []
 
     # Extract friend_data / host_data arrays from JS callback body without full JS parsing.
-    # We only need each item's html + abstime, so regex-based item parsing is fine.
+    # We only need each item's html + abstime.
     s = text
 
     def _find_array(var_name: str) -> str:
@@ -121,31 +121,34 @@ def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
     if not arr:
         return []
 
-    # Parse object items: look for html:'...'/"..." and abstime:'...'
     items: List[Dict[str, Any]] = []
+    abstime_pat = re.compile(r"\babstime\s*:\s*'?([0-9]{6,})'?")
 
-    # html field is huge, so non-greedy with DOTALL.
-    # html often contains \x3C escapes and can include raw "..." inside, so single-quote form is the reliable one.
-    html_pat = re.compile(r"\bhtml\s*:\s*(?:'((?:\\\\'|[^'])*)'|\"((?:\\\\\"|[^\"])*)\")", re.S)
-    abstime_pat = re.compile(r"\babstime\s*:\s*(?:'?(\d+)'?)")
-
-    for m in html_pat.finditer(arr):
-        html = m.group(1) if m.group(1) is not None else m.group(2)
-        if html is None:
+    # The old regex `html:'...'` is too fragile for real payloads.
+    # Instead, slice from `html:` to the next `,opuin:` (present in items) and decode afterward.
+    for m in re.finditer(r"\bhtml\s*:\s*", arr):
+        end_m = re.search(r",\s*opuin\s*:\s*", arr[m.end() :])
+        if not end_m:
             continue
 
-        # Unescape common sequences. We mainly need the <i name="feed_data" ...> tag inside html.
+        html_blob = arr[m.end() : m.end() + end_m.start()]
+        html_blob = html_blob.strip().rstrip(",")
+
+        if len(html_blob) >= 2 and html_blob[0] in ("'", '"') and html_blob[-1] == html_blob[0]:
+            html = html_blob[1:-1]
+        else:
+            html = html_blob
+
         html = html.replace("\\x3C", "<").replace("\\x3E", ">")
         html = html.replace("\\/", "/")
         html = html.replace("\\\"", '"').replace("\\'", "'")
+        html = html.replace("\\x22", '"')
 
-        # find abstime near this html occurrence (search forward a bit)
-        tail = arr[m.end() : m.end() + 800]
+        tail = arr[m.end() : m.end() + 2000]
         am = abstime_pat.search(tail)
         abstime = am.group(1) if am else ""
-        items.append({"html": html, "abstime": abstime})
 
-        # safety cap
+        items.append({"html": html, "abstime": abstime})
         if len(items) >= 200:
             break
 
@@ -218,10 +221,8 @@ class QzoneFeedFetcher:
             if isinstance(payload, dict):
                 d = payload.get("data")
                 if isinstance(d, dict):
-                    # data may be nested one level deeper (data: { data: {...} }) depending on callback wrapper
                     if isinstance(d.get("data"), dict):
                         d = d.get("data")
-                    # feeds_html_act_all list can be under friend_data or host_data
                     for k in ("friend_data", "host_data"):
                         arr = d.get(k)
                         if isinstance(arr, list):
@@ -229,7 +230,6 @@ class QzoneFeedFetcher:
                             if data_items:
                                 break
 
-            # Fallback: handle JS object literal (not strict JSON)
             extracted_items = 0
             if not data_items:
                 data_items = _extract_feed_items_from_js_callback(text)
@@ -238,18 +238,15 @@ class QzoneFeedFetcher:
             feed_data_tag_hits = 0
             self_posts = 0
 
-            # store a tiny sample for diagnostics
             if data_items:
                 try:
                     raw_html = str(data_items[0].get("html") or "")
-                    # keep it single-line and short
                     sample = raw_html[:260].replace("\n", " ").replace("\r", " ")
                     self.last_sample_html_head = sample
                 except Exception:
                     self.last_sample_html_head = ""
 
             if not data_items:
-                # debug: show keys/types to understand response shape
                 head = (text or "")[:500].replace("\n", " ").replace("\r", " ")
                 data_obj = payload.get("data") if isinstance(payload, dict) else None
                 if isinstance(data_obj, dict) and isinstance(data_obj.get("data"), dict):
@@ -273,25 +270,21 @@ class QzoneFeedFetcher:
                     continue
 
                 tag = ""
-                # plain double quotes
                 m = re.search(r"<i[^>]*\bname=\"feed_data\"[^>]*>", html)
                 if m:
                     tag = m.group(0)
 
                 if not tag:
-                    # plain single quotes
                     m = re.search(r"<i[^>]*\bname='feed_data'[^>]*>", html)
                     if m:
                         tag = m.group(0)
 
                 if not tag:
-                    # escaped double quotes
                     m = re.search(r"<i[^>]*\bname=\\\"feed_data\\\"[^>]*>", html)
                     if m:
                         tag = m.group(0)
 
                 if not tag:
-                    # escaped single quotes
                     m = re.search(r"<i[^>]*\bname=\\'feed_data\\'[^>]*>", html)
                     if m:
                         tag = m.group(0)
@@ -329,7 +322,6 @@ class QzoneFeedFetcher:
                 if not tid or not host_uin or not topic_id:
                     continue
 
-                # Only keep your own posts.
                 if host_uin != self.my_qq:
                     continue
 
@@ -357,9 +349,6 @@ class QzoneFeedFetcher:
             seen.add(p.tid)
             out.append(p)
 
-        # Extra diagnostics for production debugging.
-        # This is safe: it only prints counts + status, no cookies.
-        # Prefer AstrBot logger when available; fallback to print.
         try:
             msg = (
                 "[Qzone][feed_fetch] "
