@@ -421,6 +421,8 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result("配置缺失：my_qq 或 cookie 为空，无法点赞")
             return
 
+        yield event.plain_result(f"收到：目标空间={target_qq}，准备点赞（上限 {count_int} 条）...")
+
         try:
             client = _QzoneClient(self.my_qq, self.cookie)
         except Exception as e:
@@ -428,7 +430,7 @@ class QzoneAutoLikePlugin(Star):
             return
 
         attempted, ok = await self._like_once(client, target_qq, count_int)
-        yield event.plain_result(f"目标空间：{target_qq} | 本次尝试={attempted} | 成功={ok}")
+        yield event.plain_result(f"完成：目标空间={target_qq} | 本次尝试={attempted} | 成功={ok}")
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):

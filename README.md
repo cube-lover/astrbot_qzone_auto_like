@@ -8,10 +8,12 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 
 - 后台轮询抓取 QQ 空间 feeds
 - 发现新的 mood 动态后自动点赞
+- 支持手动指令：输入一次命令立即执行一轮点赞（不必等待轮询）
 - 在 AstrBot 后台日志输出详细调试信息（便于定位：cookie失效/风控/验证码等）
 - 去重：可将已处理记录保存到 `data/liked_records.json`
 - WebUI 配置开关：`enabled` / `auto_start`
-- 保留命令控制：`/qz_start`、`/qz_stop`、`/qz_status`
+- 可选配置默认目标空间：`target_qq`
+- 保留命令控制：`/qz_start`、`/qz_stop`、`/qz_status`、`/点赞`
 
 ## 效果截图
 
@@ -43,7 +45,7 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 
 1. 浏览器打开并登录 QQ 空间：`https://user.qzone.qq.com/<你的QQ号>`
 2. 按 `F12` 打开开发者工具，进入 `Network(网络)`
-3. 刷新页面（`F5`），在请求列表里找到 `feeds3_html_more`（或任意 `user.qzone.qq.com/proxy/domain/...` 请求）
+3. 刷新页面（`F5`），在请求列表里找到 `feeds_html_act_all`（或任意 `user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/...` 请求）
 4. 点开该请求 → `Headers(标头)` → `Request Headers(请求标头)` → 复制 `cookie: ...` 的整行内容
 5. 粘贴到本插件配置里的 `cookie`
 
@@ -65,11 +67,18 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 - `max_feeds_count`：每次拉取动态数量
 - `persist_liked`：是否持久化去重记录
 
+可选：
+- `target_qq`：默认目标QQ空间（留空=自己的空间；也可用 `/点赞 ...` 临时切换并立即执行）
+
 ## 命令
 
 - `/qz_start`：启动后台任务（同时会把 enabled 置为 true）
 - `/qz_stop`：停止后台任务（同时会把 enabled 置为 false）
-- `/qz_status`：查看运行状态、enabled/auto_start、缓存数量
+- `/qz_status`：查看运行状态、enabled/auto_start、目标空间、缓存数量
+- `/点赞 @某人 [次数]`：立即点赞对方空间的动态（默认 10，上限 100）
+- `/点赞 QQ号 [次数]`：立即点赞指定 QQ 空间的动态（默认 10，上限 100）
+
+提示：如果目标空间拉取失败，后台日志可能出现 `need login`，通常是 Cookie 不完整/失效，或触发风控/验证。
 
 ## 后台日志说明
 
