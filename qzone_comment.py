@@ -1,5 +1,5 @@
-# qzone_post.py
-# QQ空间发说说（taotao / emotion_cgi_publish_v6）
+# qzone_comment.py
+# QQ空间评论/删评（taotao / emotion_cgi_addcomment_ugc, emotion_cgi_delcomment_ugc）
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 
 
-def _get_gtk(p_skey: str) -> int:
+def _get_gtk(skey: str) -> int:
     hash_val = 5381
-    for ch in p_skey:
+    for ch in skey:
         hash_val += (hash_val << 5) + ord(ch)
     return hash_val & 0x7FFFFFFF
 
@@ -30,19 +30,25 @@ def _extract_cookie_value(cookie: str, key: str) -> str:
     return ""
 
 
+def _pick_skey_for_gtk(cookie: str) -> str:
+    for key in ("p_skey", "skey", "media_p_skey"):
+        v = _extract_cookie_value(cookie, key)
+        if v:
+            return v
+    return ""
+
+
 def _try_extract_json(text: str) -> Optional[dict]:
     if not text:
         return None
     t = text.strip()
 
-    # raw JSON
     if t.startswith("{") and t.endswith("}"):
         try:
             return json.loads(t)
         except Exception:
             return None
 
-    # callback({...}) / cb({...})
     m = re.search(r"\b(?:callback|cb)\s*\(\s*(\{.*\})\s*\)\s*;?\s*$", t, re.S)
     if m:
         try:
@@ -50,7 +56,6 @@ def _try_extract_json(text: str) -> Optional[dict]:
         except Exception:
             return None
 
-    # HTML wrapper: frameElement.callback({...})
     m = re.search(r"frameElement\.callback\s*\(\s*(\{.*?\})\s*\)", t, re.S)
     if m:
         try:
@@ -58,7 +63,6 @@ def _try_extract_json(text: str) -> Optional[dict]:
         except Exception:
             return None
 
-    # HTML wrapper: cb=frameElement.callback; ... cb({...})
     m = re.search(r"\bcb\s*\(\s*(\{.*?\})\s*\)", t, re.S)
     if m:
         try:
@@ -70,17 +74,16 @@ def _try_extract_json(text: str) -> Optional[dict]:
 
 
 @dataclass
-class PublishResult:
+class CommentResult:
     ok: bool
     code: Optional[int]
     message: str
     raw_head: str
-    tid: str
+    comment_id: str
 
 
-class QzonePoster:
+class QzoneCommenter:
     def __init__(self, my_qq: str, cookie: str):
-        # Supports publish + delete.
         self.my_qq = str(my_qq).strip()
 
         cookie = (cookie or "").strip()
@@ -88,11 +91,7 @@ class QzonePoster:
             cookie = cookie.split(":", 1)[1].strip()
         self.cookie = cookie
 
-        skey_for_gtk = (
-            _extract_cookie_value(cookie, "p_skey")
-            or _extract_cookie_value(cookie, "skey")
-            or _extract_cookie_value(cookie, "media_p_skey")
-        )
+        skey_for_gtk = _pick_skey_for_gtk(cookie)
         if not skey_for_gtk:
             raise ValueError("cookie 缺少 p_skey/skey/media_p_skey（无法计算 g_tk）")
         self.g_tk = _get_gtk(skey_for_gtk)
@@ -108,32 +107,28 @@ class QzonePoster:
             "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
         }
 
-    def publish_text(self, content: str) -> Tuple[int, PublishResult]:
-        """Publish plain-text mood."""
-        text = (content or "").strip()
-        if not text:
-            return 0, PublishResult(False, None, "empty content", "", "")
+    def add_comment(self, tid: str, text: str) -> Tuple[int, CommentResult]:
+        t = (tid or "").strip()
+        content = (text or "").strip()
+        if not t:
+            return 0, CommentResult(False, None, "empty tid", "", "")
+        if not content:
+            return 0, CommentResult(False, None, "empty text", "", "")
 
         url = (
             "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com"
-            f"/cgi-bin/emotion_cgi_publish_v6?&g_tk={self.g_tk}"
+            f"/cgi-bin/emotion_cgi_addcomment_ugc?&g_tk={self.g_tk}"
         )
 
+        # NOTE: payload fields may require alignment with browser FormData.
         data: Dict[str, Any] = {
-            "syn_tweet_verson": "1",
-            "paramstr": "1",
-            "who": "1",
-            "con": text,
-            "feedversion": "1",
-            "ver": "1",
-            "ugc_right": "1",
-            "to_sign": "0",
             "hostuin": self.my_qq,
-            "code_version": "1",
+            "tid": t,
+            "t1": t,
+            "content": content,
             "format": "fs",
-            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}",
+            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}/main",
         }
-
         data["rand"] = str(int(time.time() * 1000)) + str(random.randint(100, 999))
 
         res = requests.post(url, headers=self.headers, data=data, timeout=20)
@@ -148,33 +143,35 @@ class QzonePoster:
             except Exception:
                 code = None
             msg = str(payload.get("message") or payload.get("msg") or "")
-            tid = str(payload.get("tid") or payload.get("t1") or payload.get("feedid") or "")
+            cid = str(payload.get("commentid") or payload.get("comment_id") or payload.get("cid") or "")
             ok = code == 0
-            return res.status_code, PublishResult(ok, code, msg, head, tid)
+            return res.status_code, CommentResult(ok, code, msg, head, cid)
 
-        return res.status_code, PublishResult(False, None, "non-json response", head, "")
+        return res.status_code, CommentResult(False, None, "non-json response", head, "")
 
-    def delete_by_tid(self, tid: str) -> Tuple[int, PublishResult]:
-        """Delete a mood by tid.
-
-        Note: we rely on the tid returned by publish.
-        """
+    def delete_comment(self, tid: str, comment_id: str) -> Tuple[int, CommentResult]:
         t = (tid or "").strip()
+        cid = (comment_id or "").strip()
         if not t:
-            return 0, PublishResult(False, None, "empty tid", "", "")
+            return 0, CommentResult(False, None, "empty tid", "", "")
+        if not cid:
+            return 0, CommentResult(False, None, "empty comment_id", "", "")
 
         url = (
             "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com"
-            f"/cgi-bin/emotion_cgi_delete_v6?&g_tk={self.g_tk}"
+            f"/cgi-bin/emotion_cgi_delcomment_ugc?&g_tk={self.g_tk}"
         )
 
+        # NOTE: payload fields may require alignment with browser FormData.
         data: Dict[str, Any] = {
             "hostuin": self.my_qq,
             "tid": t,
             "t1": t,
+            "commentid": cid,
             "format": "fs",
-            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}",
+            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}/main",
         }
+        data["rand"] = str(int(time.time() * 1000)) + str(random.randint(100, 999))
 
         res = requests.post(url, headers=self.headers, data=data, timeout=20)
         head = (res.text or "")[:300].replace("\n", " ").replace("\r", " ")
@@ -189,6 +186,6 @@ class QzonePoster:
                 code = None
             msg = str(payload.get("message") or payload.get("msg") or "")
             ok = code == 0
-            return res.status_code, PublishResult(ok, code, msg, head, t)
+            return res.status_code, CommentResult(ok, code, msg, head, cid)
 
-        return res.status_code, PublishResult(False, None, "non-json response", head, t)
+        return res.status_code, CommentResult(False, None, "non-json response", head, cid)
