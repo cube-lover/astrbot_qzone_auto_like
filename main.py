@@ -6,6 +6,8 @@ import time
 import traceback
 from pathlib import Path
 from typing import Optional, Set, Tuple
+
+from .qzone_post import QzonePoster
 from urllib.parse import quote
 
 import requests
@@ -506,6 +508,49 @@ class QzoneAutoLikePlugin(Star):
         yield event.plain_result(
             f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}"
         )
+
+    @filter.command("qz_post")
+    async def qz_post(self, event: AstrMessageEvent):
+        """发一条纯文字说说。
+
+        用法：/qz_post 你的内容...
+        """
+        text = (event.message_str or "").strip()
+        # 去掉命令本身（兼容是否带 /）
+        for prefix in ("/qz_post", "qz_post"):
+            if text.lower().startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        if not text:
+            yield event.plain_result("用法：/qz_post 你的内容（暂仅支持纯文字）")
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            poster = QzonePoster(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(poster.publish_text, text)
+            logger.info(
+                "[Qzone] post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+
+            if status == 200 and result.ok:
+                yield event.plain_result("✅ 已发送说说")
+            else:
+                hint = result.message or "发送失败（可能 cookie/风控/验证页）"
+                yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
+        except Exception as e:
+            logger.error(f"[Qzone] 发说说异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
 
     @filter.command("点赞")
     async def like_other(self, event: AstrMessageEvent, count: str = "10"):
