@@ -148,9 +148,21 @@ class QzoneFeedFetcher:
                                 break
 
             if not data_items:
-                # debug: show head to understand response shape
+                # debug: show keys/types to understand response shape
                 head = (text or "")[:500].replace("\n", " ").replace("\r", " ")
-                raise RuntimeError(f"feeds_html_act_all parse failed: no data_items; head={head}")
+                data_obj = payload.get("data") if isinstance(payload, dict) else None
+                keys = []
+                if isinstance(data_obj, dict):
+                    keys = sorted(list(data_obj.keys()))
+                types = {}
+                if isinstance(data_obj, dict):
+                    for k in ("friend_data", "host_data", "about_data", "firstpage_data"):
+                        v = data_obj.get(k)
+                        types[k] = type(v).__name__
+                raise RuntimeError(
+                    "feeds_html_act_all parse failed: no data_items; "
+                    f"data_keys={keys}; data_types={types}; head={head}"
+                )
 
             for item in data_items:
                 html = str(item.get("html") or "")
