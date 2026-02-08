@@ -1520,7 +1520,7 @@ class QzoneAutoLikePlugin(Star):
             comment_uin(string): 评论作者 uin（可选；缺省用自己 uin）
             confirm(boolean): 是否确认直接删除；false 时只返回待删除信息
             latest(boolean): 是否删除最近一次成功评论（基于内存记录，重启清空）
-            idx(integer): 删除倒数第 idx 条记录（1=最近一次，2=上一次...）
+            idx(string): 删除倒数第 idx 条记录（1=最近一次，2=上一次...）
         """
 
         t = (topic_id or "").strip()
