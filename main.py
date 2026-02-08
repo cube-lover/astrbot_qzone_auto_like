@@ -10,6 +10,8 @@ from typing import Optional, Set, Tuple
 from .qzone_post import QzonePoster
 from .qzone_comment import QzoneCommenter
 from .qzone_del_comment import QzoneCommentDeleter
+from .qzone_feed_fetch import QzoneFeedFetcher
+from .qzone_protect import QzoneProtectScanner
 from urllib.parse import quote
 
 import requests
@@ -263,10 +265,27 @@ class QzoneAutoLikePlugin(Star):
         self.enabled = bool(self.config.get("enabled", False))
         self.auto_start = bool(self.config.get("auto_start", False))
 
+        # 护评：后台轮询评论区（基于 feeds3_html_more 回包内嵌 comments-list HTML）
+        self.protect_enabled = bool(self.config.get("protect_enabled", False))
+        self.protect_window_minutes = int(self.config.get("protect_window_minutes", 30) or 30)
+        self.protect_notify_mode = str(self.config.get("protect_notify_mode", "error") or "error").strip().lower()
+        if self.protect_notify_mode not in ("off", "error", "all"):
+            self.protect_notify_mode = "error"
+        self.protect_poll_interval = int(self.config.get("protect_poll_interval_sec", 10) or 10)
+        if self.protect_poll_interval <= 0:
+            self.protect_poll_interval = 10
+        self.protect_pages = int(self.config.get("protect_pages", 2) or 2)
+        if self.protect_pages <= 0:
+            self.protect_pages = 1
+
+        self._protect_task: Optional[asyncio.Task] = None
+        self._protect_stop = asyncio.Event()
+        self._protect_seen: dict[str, float] = {}
+
         # 去掉缓存/去重机制：不加载历史点赞记录
 
         logger.info(
-            "[Qzone] 插件初始化 | my_qq=%s poll=%ss delay=[%s,%s] max_feeds=%s persist=%s enabled=%s auto_start=%s liked_cache=%s cookie=%s",
+            "[Qzone] 插件初始化 | my_qq=%s poll=%ss delay=[%s,%s] max_feeds=%s persist=%s enabled=%s auto_start=%s protect=%s protect_window_min=%s protect_notify=%s cookie=%s",
             self.my_qq,
             self.poll_interval,
             self.delay_min,
@@ -275,7 +294,9 @@ class QzoneAutoLikePlugin(Star):
             self.persist,
             self.enabled,
             self.auto_start,
-            len(self._liked),
+            self.protect_enabled,
+            self.protect_window_minutes,
+            self.protect_notify_mode,
             _sanitize_cookie_for_log(self.cookie),
         )
 
@@ -711,6 +732,74 @@ class QzoneAutoLikePlugin(Star):
 
         return attempted, liked_ok
 
+    async def _protect_worker(self) -> None:
+        if not self.protect_enabled:
+            logger.info("[Qzone] protect_enabled=false，护评不启动")
+            return
+
+        if not self.my_qq or not self.cookie:
+            logger.error("[Qzone] 配置缺失：my_qq 或 cookie 为空，护评无法启动")
+            return
+
+        try:
+            scanner = QzoneProtectScanner(self.my_qq, self.cookie)
+        except Exception as e:
+            logger.error(f"[Qzone] 护评初始化失败: {e}")
+            return
+
+        logger.info(
+            "[Qzone] protect worker 启动 | window_min=%s notify=%s interval=%ss pages=%s",
+            self.protect_window_minutes,
+            self.protect_notify_mode,
+            self.protect_poll_interval,
+            self.protect_pages,
+        )
+
+        while not self._protect_stop.is_set():
+            try:
+                status, refs = await asyncio.to_thread(scanner.scan_recent_comments, self.protect_pages, 10)
+                if status != 200:
+                    if self.protect_notify_mode in ("error", "all"):
+                        logger.warning("[Qzone] protect scan failed status=%s", status)
+                else:
+                    refs = scanner.filter_within_window(refs, self.protect_window_minutes)
+
+                    # Best-effort: try delete comments; usually only works for own comments.
+                    deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
+
+                    for r in refs:
+                        k = f"{r.topic_id}:{r.comment_id}"
+                        if k in self._protect_seen:
+                            continue
+                        # mark first to avoid spamming on repeated failures
+                        self._protect_seen[k] = time.time()
+
+                        # Only attempt delete. Result must be code==0.
+                        ds, dr = await asyncio.to_thread(deleter.delete_comment, r.topic_id, r.comment_id, r.comment_uin)
+                        if ds == 200 and dr.ok:
+                            if self.protect_notify_mode == "all":
+                                logger.info("[Qzone] protect delete ok topicId=%s commentId=%s", r.topic_id, r.comment_id)
+                        else:
+                            if self.protect_notify_mode in ("error", "all"):
+                                logger.warning(
+                                    "[Qzone] protect delete failed status=%s code=%s msg=%s topicId=%s commentId=%s",
+                                    ds,
+                                    dr.code,
+                                    dr.message,
+                                    r.topic_id,
+                                    r.comment_id,
+                                )
+
+                await asyncio.wait_for(self._protect_stop.wait(), timeout=self.protect_poll_interval)
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                logger.error(f"[Qzone] protect worker 异常: {e}")
+                logger.error(traceback.format_exc())
+                await asyncio.sleep(min(10, self.protect_poll_interval))
+
+        logger.info("[Qzone] protect worker 已停止")
+
     async def _worker(self) -> None:
         if not self.enabled:
             logger.info("[Qzone] enabled=false，worker 不启动")
@@ -984,30 +1073,62 @@ class QzoneAutoLikePlugin(Star):
         if n <= 0:
             n = 1
 
-        # Latest-first; de-dup by tid while preserving recency order.
-        distinct = []
-        seen_tid = set()
-        for item in reversed(self._recent_posts):
-            tid = str(item.get("tid") or "").strip()
-            if not tid or tid in seen_tid:
-                continue
-            seen_tid.add(tid)
-            distinct.append(item)
+        # /评论 N 语义：评论“第 N 新的说说”（只包含说说），不依赖本地缓存。
+        # 这里优先实时拉取 infocenter feeds3_html_more（只取 mood 可评论项）。
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
 
-        # Semantic: /评论 1 -> latest; /评论 2 -> 2nd latest; /评论 N -> Nth latest.
-        posts = []
-        idx = n - 1
-        if idx < 0:
-            idx = 0
-        if distinct and idx < len(distinct):
-            posts = [distinct[idx]]
+        try:
+            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            status, posts = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
+            if status != 200 or not posts:
+                raise RuntimeError(f"fetch feeds failed status={status} posts={len(posts)}")
 
-        if not posts:
-            if self._last_tid and (self._last_post_text or "").strip() and n == 1:
-                posts = [{"tid": self._last_tid, "text": self._last_post_text, "ts": time.time()}]
-            else:
-                yield event.plain_result("当前说说内容为空，无法评论（请先用 /post 或 qz_post 发布；或检查 post_store_max>0）")
+            idx = n - 1
+            if idx < 0:
+                idx = 0
+            if idx >= len(posts):
+                yield event.plain_result(f"当前只抓到 {len(posts)} 条说说，无法评论第 {n} 条")
                 return
+
+            target = posts[idx]
+            tid = target.tid
+
+            commenter = QzoneCommenter(self.my_qq, self.cookie)
+
+            # Auto-generate comment using existing helper.
+            # Reuse old pipeline by setting up a single-item list with tid/text.
+            # (Keep existing LLM generation behavior below by jumping into the old flow.)
+            # If we got here, we have a target tid but not its text; we will still let LLM
+            # generate a generic short comment by feeding a placeholder.
+            distinct = [{"tid": tid, "text": "（说说内容未抓取到，生成一句自然的短评）", "ts": time.time()}]
+        except Exception as e:
+            logger.info("[Qzone] fetch mood posts failed, fallback to cache: %s", e)
+
+            # Fallback: use in-memory / on-disk post store.
+            distinct = []
+            seen_tid = set()
+            for item in reversed(self._recent_posts):
+                tid = str(item.get("tid") or "").strip()
+                if not tid or tid in seen_tid:
+                    continue
+                seen_tid.add(tid)
+                distinct.append(item)
+
+            idx = n - 1
+            if idx < 0:
+                idx = 0
+            posts = []
+            if distinct and idx < len(distinct):
+                posts = [distinct[idx]]
+
+            if not posts:
+                if self._last_tid and (self._last_post_text or "").strip() and n == 1:
+                    posts = [{"tid": self._last_tid, "text": self._last_post_text, "ts": time.time()}]
+                else:
+                    yield event.plain_result("当前说说内容为空，无法评论（请先用 /post 或 qz_post 发布；或检查 post_store_max>0）")
+                    return
 
         provider = self.context.get_using_provider(umo=event.unified_msg_origin)
         if not provider:
@@ -1667,11 +1788,22 @@ class QzoneAutoLikePlugin(Star):
         await self._maybe_autostart()
         await self._maybe_start_ai_task()
 
+        if self.protect_enabled and self._protect_task is None:
+            self._protect_stop.clear()
+            self._protect_task = asyncio.create_task(self._protect_worker())
+
     async def terminate(self):
         if self._is_running():
             self._stop_event.set()
             try:
                 await asyncio.wait_for(self._task, timeout=10)
+            except Exception:
+                pass
+
+        if self._protect_task is not None and not self._protect_task.done():
+            self._protect_stop.set()
+            try:
+                await asyncio.wait_for(self._protect_task, timeout=10)
             except Exception:
                 pass
 

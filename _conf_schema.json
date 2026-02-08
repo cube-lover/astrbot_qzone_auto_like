@@ -69,6 +69,31 @@
     "description": "评论/删评之间的最大延迟（秒）",
     "default": 2
   },
+  "protect_enabled": {
+    "type": "bool",
+    "description": "是否开启护评（后台轮询检查评论区）",
+    "default": false
+  },
+  "protect_window_minutes": {
+    "type": "int",
+    "description": "护评时间窗：动态发布后 N 分钟内才保护（<=0 表示不限制）",
+    "default": 30
+  },
+  "protect_notify_mode": {
+    "type": "string",
+    "description": "护评后台提示模式：off=不提示；error=仅失败提示；all=全部提示",
+    "default": "error"
+  },
+  "protect_poll_interval_sec": {
+    "type": "int",
+    "description": "护评轮询间隔（秒）",
+    "default": 10
+  },
+  "protect_pages": {
+    "type": "int",
+    "description": "护评每轮最多翻页页数（>=1）",
+    "default": 2
+  },
   "ai_post_enabled": {
     "type": "bool",
     "description": "启用AI定时发说说任务（需要已配置文本生成提供商）",
