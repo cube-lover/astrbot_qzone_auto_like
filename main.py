@@ -259,8 +259,11 @@ class QzoneAutoLikePlugin(Star):
         if limit > 100:
             limit = 100
 
-        # 风控友好：不一次性把 count 拉满，而是 10->20->30... 逐步拉取，
-        # 每次只点赞“本次新增”的 key，直到凑够 limit 或没有新增。
+        liked_ok = 0
+        attempted = 0
+
+        # 默认命令仍然是一次取 count=10；只有自定义请求大于10时才启用递增模式。
+        ramp_enabled = limit > 10
         ramp_step = int(self.config.get("like_ramp_step", 10))
         if ramp_step <= 0:
             ramp_step = 10
@@ -271,16 +274,10 @@ class QzoneAutoLikePlugin(Star):
         def _normalize_key(k: str) -> str:
             return k if k.endswith(".1") else (k + ".1")
 
-        liked_ok = 0
-        attempted = 0
-
-        cur_count = min(ramp_step, max_count)
-        last_status = 0
-        last_text_len = 0
+        cur_count = min(ramp_step if ramp_enabled else 10, max_count)
 
         while attempted < limit:
             status, keys, text_len = await asyncio.to_thread(client.fetch_keys, cur_count, target)
-            last_status, last_text_len = status, text_len
             logger.info(
                 "[Qzone] feeds 返回 | target=%s status=%s text_len=%s keys=%d count=%d",
                 target,
@@ -366,6 +363,9 @@ class QzoneAutoLikePlugin(Star):
                     logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
                 else:
                     logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
+
+            if not ramp_enabled:
+                break
 
             if cur_count >= max_count:
                 break
