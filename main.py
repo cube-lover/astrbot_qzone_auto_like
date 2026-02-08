@@ -22,11 +22,24 @@ def _now_hms() -> str:
     return time.strftime("%H:%M:%S")
 
 
-def _get_gtk(p_skey: str) -> int:
+def _get_gtk(skey: str) -> int:
     hash_val = 5381
-    for ch in p_skey:
+    for ch in skey:
         hash_val += (hash_val << 5) + ord(ch)
     return hash_val & 0x7FFFFFFF
+
+
+def _pick_skey_for_gtk(cookie: str) -> str:
+    """Pick a usable skey value from cookie for g_tk calculation.
+
+    Qzone commonly uses p_skey, but some cookie sets only have skey or media_p_skey.
+    """
+
+    for key in ("p_skey", "skey", "media_p_skey"):
+        v = _extract_cookie_value(cookie, key)
+        if v:
+            return v
+    return ""
 
 
 def _extract_cookie_value(cookie: str, key: str) -> str:
@@ -60,11 +73,11 @@ class _QzoneClient:
 
         self.cookie = cookie
 
-        p_skey = _extract_cookie_value(cookie, "p_skey")
-        if not p_skey:
-            raise ValueError("cookie 缺少 p_skey=...（无法计算 g_tk）")
+        skey_for_gtk = _pick_skey_for_gtk(cookie)
+        if not skey_for_gtk:
+            raise ValueError("cookie 缺少 p_skey/skey/media_p_skey（无法计算 g_tk）")
 
-        self.g_tk = _get_gtk(p_skey)
+        self.g_tk = _get_gtk(skey_for_gtk)
         self.headers = {
             "user-agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -696,12 +709,99 @@ class QzoneAutoLikePlugin(Star):
             )
 
             if status == 200 and result.ok:
-                yield event.plain_result("✅ 已发送说说")
+                tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
+                yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
                 yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
         except Exception as e:
             logger.error(f"[Qzone] 发说说异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
+
+
+    @filter.command("删除")
+    async def delete(self, event: AstrMessageEvent):
+        """删除一条说说。
+
+        用法：/删除 tid
+        """
+        text = (event.message_str or "").strip()
+        for prefix in ("/删除", "删除"):
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+                break
+
+        tid = (text or "").strip()
+        if not tid:
+            yield event.plain_result("用法：/删除 tid（tid 可从 /post 成功回显里复制）")
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            poster = QzonePoster(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(poster.delete_by_tid, tid)
+            logger.info(
+                "[Qzone] delete 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+
+            if status == 200 and result.ok:
+                yield event.plain_result(f"✅ 已删除说说 tid={tid}")
+            else:
+                hint = result.message or "删除失败（可能 cookie/风控/验证码/权限）"
+                yield event.plain_result(f"❌ 删除失败：status={status} code={result.code} msg={hint}")
+        except Exception as e:
+            logger.error(f"[Qzone] 删除说说异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
+
+    @filter.llm_tool(name="qz_delete")
+    async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str, confirm: bool = False):
+        """删除QQ空间说说。
+
+        Args:
+            tid(string): 说说的 tid
+            confirm(boolean): 是否确认直接删除；false 时只返回待删除的 tid
+        """
+        t = (tid or "").strip()
+        if not t:
+            yield event.plain_result("tid 为空")
+            return
+
+        if not confirm:
+            yield event.plain_result(f"待删除（未执行）：tid={t}")
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            poster = QzonePoster(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(poster.delete_by_tid, t)
+            logger.info(
+                "[Qzone] llm_tool delete 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+            if status == 200 and result.ok:
+                yield event.plain_result(f"✅ 已删除说说 tid={t}")
+            else:
+                hint = result.message or "删除失败（可能 cookie/风控/验证码/权限）"
+                yield event.plain_result(f"❌ 删除失败：status={status} code={result.code} msg={hint}")
+        except Exception as e:
+            logger.error(f"[Qzone] llm_tool 删除说说异常: {e}")
             logger.error(traceback.format_exc())
             yield event.plain_result(f"❌ 异常：{e}")
 
@@ -761,6 +861,7 @@ class QzoneAutoLikePlugin(Star):
 
             ts = req.func_tool or ToolSet()
             ts.add_tool(tool)
+            ts.add_tool(mgr.get_tool("qz_delete"))
             req.func_tool = ts
         except Exception as e:
             logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
