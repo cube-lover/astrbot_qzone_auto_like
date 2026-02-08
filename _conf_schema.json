@@ -90,7 +90,7 @@
     "default": 10
   },
   "llm_tools_enabled": {
-    "type": "boolean",
+    "type": "bool",
     "default": false,
     "title": "启用 LLM 工具（qz_post/qz_delete/qz_comment/qz_del_comment）",
     "description": "默认关闭：更稳定，避免群聊里出现工具调用无回显/误触发。打开后，唤醒词聊天可能会触发工具调用。"
