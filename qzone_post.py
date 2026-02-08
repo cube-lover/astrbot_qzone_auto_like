@@ -50,6 +50,22 @@ def _try_extract_json(text: str) -> Optional[dict]:
         except Exception:
             return None
 
+    # HTML wrapper: frameElement.callback({...})
+    m = re.search(r"frameElement\.callback\s*\(\s*(\{.*?\})\s*\)", t, re.S)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            return None
+
+    # HTML wrapper: cb=frameElement.callback; ... cb({...})
+    m = re.search(r"\bcb\s*\(\s*(\{.*?\})\s*\)", t, re.S)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            return None
+
     return None
 
 
