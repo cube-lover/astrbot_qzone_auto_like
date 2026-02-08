@@ -59,6 +59,8 @@ def _try_extract_json_from_callback(text: str) -> Optional[dict]:
     # _Callback({ ... });
     m = re.search(r"_Callback\s*\(\s*(\{.*\})\s*\)\s*;?\s*$", t, re.S)
     if m:
+        # NOTE: Qzone often returns JS object literal (single quotes, unquoted keys, undefined), not strict JSON.
+        # We'll fall back to a light-weight extractor elsewhere when json.loads fails.
         try:
             return json.loads(m.group(1))
         except Exception:
@@ -73,6 +75,74 @@ def _try_extract_json_from_callback(text: str) -> Optional[dict]:
             return None
 
     return None
+
+
+def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
+    if not text:
+        return []
+
+    # Extract friend_data / host_data arrays from JS callback body without full JS parsing.
+    # We only need each item's html + abstime, so regex-based item parsing is fine.
+    s = text
+
+    def _find_array(var_name: str) -> str:
+        m = re.search(r"\b" + re.escape(var_name) + r"\s*:\s*\[", s)
+        if not m:
+            return ""
+        i = m.end()  # position after '['
+        depth = 1
+        in_str = False
+        esc = False
+        quote = ""
+        j = i
+        while j < len(s):
+            ch = s[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == quote:
+                    in_str = False
+            else:
+                if ch in ("\"", "'"):
+                    in_str = True
+                    quote = ch
+                elif ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        return s[i:j]
+            j += 1
+        return ""
+
+    arr = _find_array("friend_data") or _find_array("host_data")
+    if not arr:
+        return []
+
+    # Parse object items: look for html:'...'/"..." and abstime:'...'
+    items: List[Dict[str, Any]] = []
+
+    # html field is huge, so non-greedy with DOTALL.
+    html_pat = re.compile(r"\bhtml\s*:\s*(?:'((?:\\\\'|[^'])*)'|\"((?:\\\\\"|[^\"])*)\")", re.S)
+    abstime_pat = re.compile(r"\babstime\s*:\s*(?:'?(\d+)'?)")
+
+    for m in html_pat.finditer(arr):
+        html = m.group(1) if m.group(1) is not None else m.group(2)
+        if html is None:
+            continue
+        # find abstime near this html occurrence (search forward a bit)
+        tail = arr[m.end() : m.end() + 500]
+        am = abstime_pat.search(tail)
+        abstime = am.group(1) if am else ""
+        items.append({"html": html, "abstime": abstime})
+
+        # safety cap
+        if len(items) >= 200:
+            break
+
+    return items
 
 
 class QzoneFeedFetcher:
@@ -149,6 +219,10 @@ class QzoneFeedFetcher:
                             data_items = [x for x in arr if isinstance(x, dict)]
                             if data_items:
                                 break
+
+            # Fallback: handle JS object literal (not strict JSON)
+            if not data_items:
+                data_items = _extract_feed_items_from_js_callback(text)
 
             if not data_items:
                 # debug: show keys/types to understand response shape
