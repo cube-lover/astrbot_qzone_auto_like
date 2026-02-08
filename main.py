@@ -106,8 +106,8 @@ class _QzoneClient:
 
     def fetch_keys(
         self, count: int, target_qq: Optional[str] = None, start: int = 0
-    ) -> Tuple[int, Set[str], int]:
-        """拉取目标空间的动态链接集合（支持翻页）。
+    ) -> Tuple[int, list[str], int]:
+        """拉取目标空间的动态链接列表（保持页面出现顺序，支持翻页）。
 
         兼容不同前端：优先使用 feeds_html_act_all（较常见），必要时可再扩展其他 CGI。
         """
@@ -133,7 +133,16 @@ class _QzoneClient:
             r"(http[s]?[:\\/]+user\.qzone\.qq\.com[:\\/]+\d+[:\\/]+mood[:\\/]+[a-f0-9]+)",
             res.text or "",
         )
-        keys = {link.replace("\\", "") for link in raw_links}
+
+        keys: list[str] = []
+        seen: set[str] = set()
+        for link in raw_links:
+            link = link.replace("\\", "")
+            if link in seen:
+                continue
+            seen.add(link)
+            keys.append(link)
+
         return status, keys, text_len
 
     def send_like(self, full_key: str) -> Tuple[int, str]:
@@ -320,11 +329,8 @@ class QzoneAutoLikePlugin(Star):
                         logger.warning("[Qzone] feeds head 获取失败: %s", e)
                 break
 
-            # 下一页偏移
-            start += fetch_count
-
             progressed = False
-            for unikey in sorted(keys):
+            for unikey in keys:
                 if attempted >= limit:
                     break
 
@@ -366,6 +372,9 @@ class QzoneAutoLikePlugin(Star):
                     self._save_records()
                 else:
                     logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
+
+            # 下一页偏移：只有处理完当前页后才翻页
+            start += fetch_count
 
             if not progressed:
                 # 这一页全是已点赞/重复，继续翻页
