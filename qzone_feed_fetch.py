@@ -154,6 +154,7 @@ def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
 class QzoneFeedFetcher:
     def __init__(self, my_qq: str, cookie: str):
         self.my_qq = str(my_qq).strip()
+        self.last_diag: str = ""
 
         cookie = (cookie or "").strip()
         if cookie.lower().startswith("cookie:"):
@@ -353,12 +354,8 @@ class QzoneFeedFetcher:
                 f"status=200 extracted_items={extracted_items} feed_data_tag_hits={feed_data_tag_hits} "
                 f"self_posts={self_posts} out_posts={len(out)}"
             )
-            logger = globals().get("logger")
-            if logger is not None and hasattr(logger, "info"):
-                logger.info(msg)
-            else:
-                print(msg)
+            self.last_diag = msg
         except Exception:
-            pass
+            self.last_diag = ""
 
         return 200, out
