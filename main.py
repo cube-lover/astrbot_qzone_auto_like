@@ -334,17 +334,23 @@ class QzoneAutoLikePlugin(Star):
         )
 
     @filter.command("点赞")
-    async def like_other(self, event: AstrMessageEvent, count: int = 10):
+    async def like_other(self, event: AstrMessageEvent, count: str = "10"):
         """输入：/点赞 @某人 [次数]
         或：/点赞 QQ号 [次数]
 
         作用：把目标临时切换到指定QQ空间，并在下一轮最多点赞 count 条动态。
         规则：优先解析 @ 段；若没有 @，则从文本里取第一个纯数字作为QQ号。
         """
-        if count <= 0:
-            count = 10
-        if count > 100:
-            count = 100
+        # 兼容平台/适配器把 int 参数当成字符串传入
+        try:
+            count_int = int(str(count).strip())
+        except Exception:
+            count_int = 10
+
+        if count_int <= 0:
+            count_int = 10
+        if count_int > 100:
+            count_int = 100
 
         target_qq = ""
         try:
@@ -368,16 +374,16 @@ class QzoneAutoLikePlugin(Star):
             return
 
         self._target_qq = target_qq
-        self._manual_like_limit = count
+        self._manual_like_limit = count_int
 
         if not self._is_running():
             yield event.plain_result(
-                f"已切换目标空间：{target_qq}；本次计划点赞 {count} 条。\n"
+                f"已切换目标空间：{target_qq}；本次计划点赞 {count_int} 条。\n"
                 f"当前任务未运行，请先 /qz_start 启动后台任务。"
             )
             return
 
-        yield event.plain_result(f"已切换目标空间：{target_qq}；下一轮最多点赞 {count} 条动态（请看后台日志）。")
+        yield event.plain_result(f"已切换目标空间：{target_qq}；下一轮最多点赞 {count_int} 条动态（请看后台日志）。")
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
