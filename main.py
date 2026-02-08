@@ -174,6 +174,9 @@ class QzoneAutoLikePlugin(Star):
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
+        # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
+        self._auto_seen: dict[str, float] = {}
+
         self.my_qq = str(self.config.get("my_qq", "")).strip()
         self.cookie = str(self.config.get("cookie", "")).strip()
         self._target_qq = str(self.config.get("target_qq", "")).strip()
@@ -252,7 +255,14 @@ class QzoneAutoLikePlugin(Star):
         self._task = asyncio.create_task(self._worker())
         logger.info("[Qzone] auto_start：任务已自动启动")
 
-    async def _like_once(self, client: _QzoneClient, target_qq: str, limit: int) -> Tuple[int, int]:
+    async def _like_once(
+        self,
+        client: _QzoneClient,
+        target_qq: str,
+        limit: int,
+        *,
+        dedup: bool = False,
+    ) -> Tuple[int, int]:
         target = str(target_qq).strip() or self.my_qq
         if limit <= 0:
             limit = 10
@@ -325,9 +335,23 @@ class QzoneAutoLikePlugin(Star):
             if not new_keys:
                 break
 
+            now_ts = time.time()
+            if dedup:
+                ttl = int(self.config.get("auto_dedup_ttl_sec", 86400))
+                if ttl < 0:
+                    ttl = 0
+                if ttl:
+                    # 清理过期
+                    expired = [k for k, ts in self._auto_seen.items() if now_ts - ts > ttl]
+                    for k in expired:
+                        self._auto_seen.pop(k, None)
+
             for full_key in new_keys:
                 if attempted >= limit:
                     break
+
+                if dedup and full_key in self._auto_seen:
+                    continue
 
                 attempted += 1
                 logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
@@ -361,6 +385,8 @@ class QzoneAutoLikePlugin(Star):
                 if ok:
                     liked_ok += 1
                     logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
+                    if dedup:
+                        self._auto_seen[full_key] = now_ts
                 else:
                     logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
 
@@ -399,7 +425,7 @@ class QzoneAutoLikePlugin(Star):
                 target = self._target_qq.strip() or self.my_qq
                 limit = self._manual_like_limit if self._manual_like_limit > 0 else self.max_feeds
 
-                attempted, ok = await self._like_once(client, target, limit)
+                attempted, ok = await self._like_once(client, target, limit, dedup=True)
 
                 if attempted == 0:
                     logger.info("[Qzone] 本轮没有新动态待处理")
