@@ -957,6 +957,17 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
+                try:
+                    cid = getattr(result, "comment_id", "")
+                    topic = getattr(result, "topic_id", "")
+                    if cid and topic:
+                        self._recent_comment_refs.append(
+                            {"topicId": str(topic), "commentId": str(cid), "ts": time.time()}
+                        )
+                        if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
+                            self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
+                except Exception:
+                    pass
                 yield event.plain_result(f"✅ 已评论 tid={tid}")
             else:
                 hint = result.message or "评论失败"
@@ -1065,9 +1076,11 @@ class QzoneAutoLikePlugin(Star):
             if status == 200 and result.ok:
                 ok_cnt += 1
                 try:
-                    if getattr(result, "comment_id", "") and getattr(result, "topic_id", ""):
+                    cid = getattr(result, "comment_id", "")
+                    topic = getattr(result, "topic_id", "")
+                    if cid and topic:
                         self._recent_comment_refs.append(
-                            {"topicId": str(result.topic_id), "commentId": str(result.comment_id), "ts": time.time()}
+                            {"topicId": str(topic), "commentId": str(cid), "ts": time.time()}
                         )
                         if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
                             self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
