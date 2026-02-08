@@ -379,19 +379,17 @@ class QzoneAutoLikePlugin(Star):
         """输入：/点赞 @某人 [次数]
         或：/点赞 QQ号 [次数]
 
-        作用：把目标临时切换到指定QQ空间，并在下一轮最多点赞 count 条动态。
+        作用：把目标临时切换到指定QQ空间，并立即执行一次点赞。
         规则：优先解析 @ 段；若没有 @，则从文本里取第一个纯数字作为QQ号。
+
+        兼容说明：部分适配器会吞掉第二个参数（次数），所以这里会从整条消息里兜底提取。
         """
-        # 兼容平台/适配器把 int 参数当成字符串传入
+        # 兼容平台/适配器把 int 参数当成字符串传入；若解析失败则稍后兜底。
+        count_int: Optional[int] = None
         try:
             count_int = int(str(count).strip())
         except Exception:
-            count_int = 10
-
-        if count_int <= 0:
-            count_int = 10
-        if count_int > 100:
-            count_int = 100
+            count_int = None
 
         target_qq = ""
         try:
@@ -405,14 +403,34 @@ class QzoneAutoLikePlugin(Star):
         except Exception:
             target_qq = ""
 
+        msg_text = event.message_str or ""
+
         if not target_qq:
-            m = re.search(r"\b(\d{5,12})\b", event.message_str or "")
+            # 从文本里取第一个 QQ 号
+            m = re.search(r"\b(\d{5,12})\b", msg_text)
             if m:
                 target_qq = m.group(1)
 
         if not target_qq:
             yield event.plain_result("用法：/点赞 @某人 20  或  /点赞 3483935913 20")
             return
+
+        # 兜底提取次数：从消息里取最后一个数字，并排除目标QQ号本身
+        if count_int is None or count_int == 10:
+            nums = re.findall(r"\b(\d{1,3})\b", msg_text)
+            if nums:
+                try:
+                    count_int = int(nums[-1])
+                except Exception:
+                    count_int = count_int or 10
+
+        if count_int is None:
+            count_int = 10
+
+        if count_int <= 0:
+            count_int = 10
+        if count_int > 100:
+            count_int = 100
 
         self._target_qq = target_qq
 
@@ -421,7 +439,9 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result("配置缺失：my_qq 或 cookie 为空，无法点赞")
             return
 
-        yield event.plain_result(f"收到：目标空间={target_qq}，准备点赞（上限 {count_int} 条）...")
+        yield event.plain_result(
+            f"收到：目标空间={target_qq}，准备点赞（请求 {count_int}，单轮上限 {count_int} 条）..."
+        )
 
         try:
             client = _QzoneClient(self.my_qq, self.cookie)
