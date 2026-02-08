@@ -148,13 +148,12 @@ class QzoneAutoLikePlugin(Star):
         if self.delay_min > self.delay_max:
             self.delay_min, self.delay_max = self.delay_max, self.delay_min
         self.max_feeds = int(self.config.get("max_feeds_count", 15))
-        self.persist = bool(self.config.get("persist_liked", True))
+        self.persist = False
 
         self.enabled = bool(self.config.get("enabled", False))
         self.auto_start = bool(self.config.get("auto_start", False))
 
-        if self.persist:
-            self._load_records()
+        # 去掉缓存/去重机制：不加载历史点赞记录
 
         logger.info(
             "[Qzone] 插件初始化 | my_qq=%s poll=%ss delay=[%s,%s] max_feeds=%s persist=%s enabled=%s auto_start=%s liked_cache=%s cookie=%s",
@@ -267,8 +266,7 @@ class QzoneAutoLikePlugin(Star):
                 break
 
             full_key = unikey if unikey.endswith(".1") else (unikey + ".1")
-            if full_key in self._liked:
-                continue
+            # 去掉缓存/去重机制：允许重复尝试点赞
 
             attempted += 1
             logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
@@ -287,8 +285,7 @@ class QzoneAutoLikePlugin(Star):
             if ok:
                 liked_ok += 1
                 logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
-                self._liked.add(full_key)
-                self._save_records()
+                # 去掉缓存/去重机制：不记录已点赞 key
             else:
                 logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
 
