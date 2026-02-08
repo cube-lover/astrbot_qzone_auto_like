@@ -775,18 +775,24 @@ class QzoneAutoLikePlugin(Star):
     async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False):
         """删除QQ空间说说。
 
+        LLM 使用指南：
+        - 如果用户说“删除刚刚/最近那条”，优先传 latest=true（不要凭空编 tid）。
+        - 如果对话里出现“tid=xxxx”，就把 xxxx 作为 tid 传入。
+
         Args:
             tid(string): 说说的 tid（可选；当 latest=true 时可留空）
             confirm(boolean): 是否确认直接删除；false 时只返回待删除信息
             latest(boolean): 是否删除最近一条（仅本插件本次运行内记录；重启会清空）
         """
         t = (tid or "").strip()
+
+        # If user intent is 'latest', fall back to in-memory last tid.
         if latest and not t:
             t = (self._last_tid or "").strip()
 
         if not t:
             if self._last_tid:
-                yield event.plain_result(f"tid 为空。最近一条 tid={self._last_tid}（可用 latest=true 或直接传 tid）")
+                yield event.plain_result(f"tid 为空。最近一条 tid={self._last_tid}（建议 latest=true 或直接传 tid）")
             else:
                 yield event.plain_result("tid 为空")
             return
@@ -853,7 +859,10 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
-                yield event.plain_result("✅ 已发送说说")
+                tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
+                if getattr(result, "tid", ""):
+                    self._last_tid = str(result.tid)
+                yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
                 yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
