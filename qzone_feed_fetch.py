@@ -137,6 +137,7 @@ def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
         # Unescape common sequences. We mainly need the <i name="feed_data" ...> tag inside html.
         html = html.replace("\\x3C", "<").replace("\\x3E", ">")
         html = html.replace("\\/", "/")
+        html = html.replace("\\\"", '"').replace("\\'", "'")
 
         # find abstime near this html occurrence (search forward a bit)
         tail = arr[m.end() : m.end() + 800]
@@ -261,20 +262,20 @@ class QzoneFeedFetcher:
                     continue
 
                 tag = ""
-                # escaped double quotes
-                m = re.search(r"<i[^>]*\bname=\\\"feed_data\\\"[^>]*>", html)
+                # plain double quotes
+                m = re.search(r"<i[^>]*\bname=\"feed_data\"[^>]*>", html)
                 if m:
                     tag = m.group(0)
 
                 if not tag:
-                    # plain double quotes
-                    m = re.search(r"<i[^>]*\bname=\"feed_data\"[^>]*>", html)
+                    # plain single quotes
+                    m = re.search(r"<i[^>]*\bname='feed_data'[^>]*>", html)
                     if m:
                         tag = m.group(0)
 
                 if not tag:
-                    # plain single quotes
-                    m = re.search(r"<i[^>]*\bname='feed_data'[^>]*>", html)
+                    # escaped double quotes
+                    m = re.search(r"<i[^>]*\bname=\\\"feed_data\\\"[^>]*>", html)
                     if m:
                         tag = m.group(0)
 
