@@ -120,13 +120,28 @@ class QzoneCommenter:
             f"/cgi-bin/emotion_cgi_addcomment_ugc?&g_tk={self.g_tk}"
         )
 
+        # Aligned with browser FormData (minimal required fields).
+        # Note: topicId is required; it is derived from feed. Accept direct tid for now.
         data: Dict[str, Any] = {
-            "hostuin": self.my_qq,
-            "tid": t,
-            "t1": t,
-            "content": content,
+            "g_tk": str(self.g_tk),
+            "topicId": t,
+            "feedsType": "100",
+            "inCharset": "utf-8",
+            "outCharset": "utf-8",
+            "plat": "qzone",
+            "source": "ic",
+            "hostUin": self.my_qq,
+            "isSignIn": "",
+            "platformid": "50",
+            "uin": self.my_qq,
             "format": "fs",
-            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}/main",
+            "ref": "feeds",
+            "content": content,
+            "richval": "",
+            "richtype": "",
+            "private": "0",
+            "paramstr": "1",
+            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}/infocenter?via=toolbar",
         }
         data["rand"] = str(int(time.time() * 1000)) + str(random.randint(100, 999))
 
