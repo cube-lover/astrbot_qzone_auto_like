@@ -641,7 +641,7 @@ class QzoneAutoLikePlugin(Star):
                 break
             cur_count = min(cur_count + ramp_step, max_count)
             # 每次加大 count 前稍微休息一下，降低风控概率
-            await asyncio.sleep(1.0 + random.random() * 2.0)
+            await asyncio.sleep(0.5 + random.random() * 0.7)
 
         return attempted, liked_ok
 
@@ -805,7 +805,7 @@ class QzoneAutoLikePlugin(Star):
                 status, result = await asyncio.to_thread(QzonePoster(self.my_qq, self.cookie).delete_by_tid, t)
                 if status == 200 and result.ok:
                     deleted += 1
-                await asyncio.sleep(1.0 + random.random() * 2.0)
+                await asyncio.sleep(0.5 + random.random() * 0.7)
             yield event.plain_result(f"批量删除完成：成功={deleted}/{len(tids)}")
             return
         if not tid:
@@ -878,7 +878,7 @@ class QzoneAutoLikePlugin(Star):
                 status, result = await asyncio.to_thread(QzonePoster(self.my_qq, self.cookie).delete_by_tid, t2)
                 if status == 200 and result.ok:
                     deleted += 1
-                await asyncio.sleep(1.0 + random.random() * 2.0)
+                await asyncio.sleep(0.5 + random.random() * 0.7)
             yield event.plain_result(f"批量删除完成：成功={deleted}/{len(tids)}")
             return
 
