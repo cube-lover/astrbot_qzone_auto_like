@@ -1141,11 +1141,15 @@ class QzoneAutoLikePlugin(Star):
             fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
             status, items = await asyncio.to_thread(fetcher.fetch_items, 20, 4)
             if status != 200 or not items:
-                raise RuntimeError(f"fetch feeds failed status={status} items={len(items)}")
+                diag = getattr(fetcher, "last_diag", "")
+                extra = f" | {diag}" if diag else ""
+                raise RuntimeError(f"fetch feeds failed status={status} items={len(items)}{extra}")
 
             posts = fetcher.extract_mood_posts(items)
             if not posts:
-                raise RuntimeError(f"no mood posts extracted items={len(items)}")
+                diag = getattr(fetcher, "last_diag", "")
+                extra = f" | {diag}" if diag else ""
+                raise RuntimeError(f"no mood posts extracted items={len(items)}{extra}")
 
             idx = n - 1
             if idx < 0:
