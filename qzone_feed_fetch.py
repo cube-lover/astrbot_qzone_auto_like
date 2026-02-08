@@ -227,11 +227,13 @@ class QzoneFeedFetcher:
                                 break
 
             # Fallback: handle JS object literal (not strict JSON)
+            extracted_items = 0
             if not data_items:
                 data_items = _extract_feed_items_from_js_callback(text)
+                extracted_items = len(data_items)
 
-            # debug: if we extracted items but later got 0 posts, it's likely tag extraction mismatch.
-            # (Leave detailed debug in logs only on empty result.)
+            feed_data_tag_hits = 0
+            self_posts = 0
 
             if not data_items:
                 # debug: show keys/types to understand response shape
@@ -284,6 +286,8 @@ class QzoneFeedFetcher:
                 if not tag:
                     continue
 
+                feed_data_tag_hits += 1
+
                 tid = ""
                 host_uin = ""
                 topic_id = ""
@@ -316,6 +320,8 @@ class QzoneFeedFetcher:
                 if host_uin != self.my_qq:
                     continue
 
+                self_posts += 1
+
                 if "_" not in topic_id or "__" not in topic_id:
                     continue
 
@@ -337,5 +343,16 @@ class QzoneFeedFetcher:
                 continue
             seen.add(p.tid)
             out.append(p)
+
+        # Extra diagnostics for production debugging.
+        # This is safe: it only prints counts + status, no cookies.
+        try:
+            print(
+                "[Qzone][feed_fetch] "
+                f"status=200 extracted_items={extracted_items} feed_data_tag_hits={feed_data_tag_hits} "
+                f"self_posts={self_posts} out_posts={len(out)}"
+            )
+        except Exception:
+            pass
 
         return 200, out
