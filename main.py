@@ -513,17 +513,16 @@ class QzoneAutoLikePlugin(Star):
     async def post(self, event: AstrMessageEvent):
         """发一条纯文字说说。
 
-        用法：/qz_post 你的内容...
+        用法：/post 你的内容...
         """
         text = (event.message_str or "").strip()
-        # 去掉命令本身（兼容是否带 /）
-        for prefix in ("/post", "post", "/qz_post", "qz_post"):
+        for prefix in ("/post", "post"):
             if text.lower().startswith(prefix):
                 text = text[len(prefix) :].strip()
                 break
 
         if not text:
-            yield event.plain_result("用法：/qz_post 你的内容（暂仅支持纯文字）")
+            yield event.plain_result("用法：/post 你的内容（暂仅支持纯文字）")
             return
 
         if not self.my_qq or not self.cookie:
@@ -549,6 +548,79 @@ class QzoneAutoLikePlugin(Star):
                 yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
         except Exception as e:
             logger.error(f"[Qzone] 发说说异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
+
+    @filter.command("genpost")
+    async def genpost(self, event: AstrMessageEvent):
+        """用 AstrBot 已配置的 LLM 生成一条说说，然后自动发送。
+
+        用法：/genpost 主题或要求...
+        """
+        prompt = (event.message_str or "").strip()
+        for prefix in ("/genpost", "genpost"):
+            if prompt.lower().startswith(prefix):
+                prompt = prompt[len(prefix) :].strip()
+                break
+
+        if not prompt:
+            yield event.plain_result("用法：/genpost 给我一个主题或要求（如：写条不尬的晚安说说）")
+            return
+
+        provider = self.context.get_using_provider(umo=event.unified_msg_origin)
+        if not provider:
+            yield event.plain_result("未配置文本生成服务（请在 AstrBot WebUI 添加/启用提供商）")
+            return
+
+        system_prompt = (
+            "你是中文写作助手。请为QQ空间写一条纯文字说说，符合真人口吻。\n"
+            "要求：不尬、不营销、不带链接；1-3句；总字数<=120；只输出说说正文，不要解释。"
+        )
+
+        try:
+            resp = await provider.text_chat(prompt=prompt, system_prompt=system_prompt, context=[])
+            content = (resp.content or "").strip()
+        except Exception as e:
+            yield event.plain_result(f"LLM 调用失败：{e}")
+            return
+
+        if not content:
+            yield event.plain_result("LLM 返回为空")
+            return
+
+        # 简单清洗：去掉引号/代码块
+        content = content.strip("\"'` ")
+        content = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", content)
+        content = re.sub(r"```\s*$", "", content).strip()
+
+        if len(content) > 120:
+            content = content[:120].rstrip()
+
+        yield event.plain_result(f"生成内容：{content}\n正在发送...")
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            poster = QzonePoster(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(poster.publish_text, content)
+            logger.info(
+                "[Qzone] genpost->post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+
+            if status == 200 and result.ok:
+                yield event.plain_result("✅ 已发送说说")
+            else:
+                hint = result.message or "发送失败（可能 cookie/风控/验证页）"
+                yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
+        except Exception as e:
+            logger.error(f"[Qzone] genpost 发说说异常: {e}")
             logger.error(traceback.format_exc())
             yield event.plain_result(f"❌ 异常：{e}")
 
