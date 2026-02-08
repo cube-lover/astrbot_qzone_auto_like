@@ -47,5 +47,10 @@
     "type": "bool",
     "description": "Bot 启动后是否根据 enabled 自动启动任务",
     "default": false
+  },
+  "target_qq": {
+    "type": "string",
+    "description": "默认目标QQ空间（留空=自己的空间；也可用 /点赞 @某人 临时切换）",
+    "default": ""
   }
 }

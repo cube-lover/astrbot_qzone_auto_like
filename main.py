@@ -6,6 +6,7 @@ import time
 import traceback
 from pathlib import Path
 from typing import Optional, Set, Tuple
+from urllib.parse import quote
 
 import requests
 
@@ -36,34 +37,24 @@ def _extract_cookie_value(cookie: str, key: str) -> str:
 
 
 def _sanitize_cookie_for_log(cookie_str: str) -> str:
+    # Cookie 属于登录态，默认不输出任何可关联信息。
     if not cookie_str:
         return ""
 
-    sensitive = {
-        "p_skey",
-        "skey",
-        "pt4_token",
-        "ptcz",
-        "rk",
-        "rv2",
-        "property20",
-        "media_p_skey",
-    }
-
-    out = []
-    for item in [x.strip() for x in cookie_str.split(";") if x.strip()]:
-        k, _, v = item.partition("=")
-        lk = k.strip().lower()
-        if lk in sensitive:
-            out.append(f"{k}=***")
-        else:
-            out.append(f"{k}={v[:6]}***" if v else f"{k}=")
-    return "; ".join(out)
+    has_p_skey = bool(_extract_cookie_value(cookie_str, "p_skey"))
+    return f"<cookie:redacted has_p_skey={has_p_skey}>"
 
 
 class _QzoneClient:
     def __init__(self, my_qq: str, cookie: str):
+        # my_qq: 当前登录 Cookie 对应的 QQ（用于 referer / opuin）
         self.my_qq = my_qq
+
+        # 兼容用户从 DevTools 里复制整行 "cookie: ..." 的情况
+        cookie = (cookie or "").strip()
+        if cookie.lower().startswith("cookie:"):
+            cookie = cookie.split(":", 1)[1].strip()
+
         self.cookie = cookie
 
         p_skey = _extract_cookie_value(cookie, "p_skey")
@@ -80,10 +71,11 @@ class _QzoneClient:
             "referer": f"https://user.qzone.qq.com/{my_qq}",
         }
 
-    def fetch_keys(self, count: int) -> Tuple[int, Set[str], int]:
+    def fetch_keys(self, count: int, target_qq: Optional[str] = None) -> Tuple[int, Set[str], int]:
+        target = str(target_qq or self.my_qq).strip()
         feeds_url = (
             "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
-            f"feeds3_html_more?uin={self.my_qq}&scope=0&view=1&flag=1&refresh=1&count={count}"
+            f"feeds3_html_more?uin={target}&scope=0&view=1&flag=1&refresh=1&count={count}"
             f"&outputhtmlfeed=1&g_tk={self.g_tk}"
         )
         res = requests.get(feeds_url, headers=self.headers, timeout=20)
@@ -128,6 +120,10 @@ class QzoneAutoLikePlugin(Star):
         super().__init__(context)
         self.config = config or {}
 
+        # 运行时：目标空间（若为空则监控/点赞自己的空间）
+        self._target_qq: str = ""
+        self._manual_like_limit: int = 0
+
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
 
@@ -136,9 +132,12 @@ class QzoneAutoLikePlugin(Star):
 
         self.my_qq = str(self.config.get("my_qq", "")).strip()
         self.cookie = str(self.config.get("cookie", "")).strip()
+        self._target_qq = str(self.config.get("target_qq", "")).strip()
         self.poll_interval = int(self.config.get("poll_interval_sec", 20))
         self.delay_min = int(self.config.get("like_delay_min_sec", 2))
         self.delay_max = int(self.config.get("like_delay_max_sec", 5))
+        if self.delay_min > self.delay_max:
+            self.delay_min, self.delay_max = self.delay_max, self.delay_min
         self.max_feeds = int(self.config.get("max_feeds_count", 15))
         self.persist = bool(self.config.get("persist_liked", True))
 
@@ -230,9 +229,15 @@ class QzoneAutoLikePlugin(Star):
             try:
                 logger.info("[%s] 正在侦测...（liked_cache=%d）", _now_hms(), len(self._liked))
 
-                status, keys, text_len = await asyncio.to_thread(client.fetch_keys, self.max_feeds)
+                target = self._target_qq.strip() or self.my_qq
+                fetch_count = self.max_feeds
+                if self._manual_like_limit > 0:
+                    fetch_count = max(fetch_count, self._manual_like_limit)
+
+                status, keys, text_len = await asyncio.to_thread(client.fetch_keys, fetch_count, target)
                 logger.info(
-                    "[Qzone] feeds 返回 | status=%s text_len=%s keys=%d",
+                    "[Qzone] feeds 返回 | target=%s status=%s text_len=%s keys=%d",
+                    target,
                     status,
                     text_len,
                     len(keys),
@@ -247,7 +252,13 @@ class QzoneAutoLikePlugin(Star):
                     continue
 
                 new_targets = 0
+                liked_this_round = 0
+                limit = self._manual_like_limit if self._manual_like_limit > 0 else 0
+
                 for unikey in sorted(keys):
+                    if limit and liked_this_round >= limit:
+                        break
+
                     full_key = unikey if unikey.endswith(".1") else (unikey + ".1")
                     if full_key in self._liked:
                         continue
@@ -261,7 +272,13 @@ class QzoneAutoLikePlugin(Star):
                     resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
                     logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
 
-                    if '"code":0' in resp:
+                    ok = False
+                    m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
+                    if m and m.group(1) == "0":
+                        ok = True
+
+                    if ok:
+                        liked_this_round += 1
                         logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
                         self._liked.add(full_key)
                         self._save_records()
@@ -270,6 +287,9 @@ class QzoneAutoLikePlugin(Star):
 
                 if new_targets == 0:
                     logger.info("[Qzone] 本轮没有新动态待处理")
+                if limit:
+                    logger.info("[Qzone] 手动点赞限制=%d，本轮成功点赞=%d", limit, liked_this_round)
+                    self._manual_like_limit = 0
 
                 await asyncio.sleep(self.poll_interval)
 
@@ -308,9 +328,56 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.command("qz_status")
     async def qz_status(self, event: AstrMessageEvent):
+        target = self._target_qq.strip() or self.my_qq
         yield event.plain_result(
-            f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | liked_cache={len(self._liked)}"
+            f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}"
         )
+
+    @filter.command("点赞")
+    async def like_other(self, event: AstrMessageEvent, count: int = 10):
+        """输入：/点赞 @某人 [次数]
+        或：/点赞 QQ号 [次数]
+
+        作用：把目标临时切换到指定QQ空间，并在下一轮最多点赞 count 条动态。
+        规则：优先解析 @ 段；若没有 @，则从文本里取第一个纯数字作为QQ号。
+        """
+        if count <= 0:
+            count = 10
+        if count > 100:
+            count = 100
+
+        target_qq = ""
+        try:
+            chain = getattr(event.message_obj, "message", [])
+            for seg in chain:
+                if getattr(seg, "type", "") == "at":
+                    qq = getattr(seg, "qq", "")
+                    if qq:
+                        target_qq = str(qq).strip()
+                        break
+        except Exception:
+            target_qq = ""
+
+        if not target_qq:
+            m = re.search(r"\b(\d{5,12})\b", event.message_str or "")
+            if m:
+                target_qq = m.group(1)
+
+        if not target_qq:
+            yield event.plain_result("用法：/点赞 @某人 20  或  /点赞 3483935913 20")
+            return
+
+        self._target_qq = target_qq
+        self._manual_like_limit = count
+
+        if not self._is_running():
+            yield event.plain_result(
+                f"已切换目标空间：{target_qq}；本次计划点赞 {count} 条。\n"
+                f"当前任务未运行，请先 /qz_start 启动后台任务。"
+            )
+            return
+
+        yield event.plain_result(f"已切换目标空间：{target_qq}；下一轮最多点赞 {count} 条动态（请看后台日志）。")
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
