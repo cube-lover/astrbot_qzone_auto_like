@@ -783,7 +783,31 @@ class QzoneAutoLikePlugin(Star):
                 text = text[len(prefix):].strip()
                 break
 
+        # Support both: "/删除 <tid>" and "删除 <N>" to delete recent N posts.
         tid = (text or "").strip()
+        n = 0
+        if tid.isdigit() and len(tid) <= 3:
+            try:
+                n = int(tid)
+            except Exception:
+                n = 0
+
+        if n > 0:
+            max_n = min(n, self._tid_store_max if self._tid_store_max > 0 else n)
+            tids = list(reversed(self._recent_tids))[:max_n]
+            if not tids:
+                yield event.plain_result("没有可删除的 recent tids（先用 /post 发几条，或开启 tid_store_max 落盘）")
+                return
+
+            yield event.plain_result(f"准备删除最近 {len(tids)} 条（可能触发风控，失败会提示 code/msg）")
+            deleted = 0
+            for t in tids:
+                status, result = await asyncio.to_thread(QzonePoster(self.my_qq, self.cookie).delete_by_tid, t)
+                if status == 200 and result.ok:
+                    deleted += 1
+                await asyncio.sleep(1.0 + random.random() * 2.0)
+            yield event.plain_result(f"批量删除完成：成功={deleted}/{len(tids)}")
+            return
         if not tid:
             if self._last_tid:
                 yield event.plain_result(f"用法：/删除 tid（最近一条 tid={self._last_tid}，可直接 /删除 {self._last_tid}）")
@@ -818,7 +842,7 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"❌ 异常：{e}")
 
     @filter.llm_tool(name="qz_delete")
-    async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False):
+    async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False, count: int = 0):
         """删除QQ空间说说。
 
         LLM 使用指南：
@@ -829,7 +853,35 @@ class QzoneAutoLikePlugin(Star):
             tid(string): 说说的 tid（可选；当 latest=true 时可留空）
             confirm(boolean): 是否确认直接删除；false 时只返回待删除信息
             latest(boolean): 是否删除最近一条（仅本插件本次运行内记录；重启会清空）
+            count(int): 批量删除最近 N 条（优先级高于 tid/latest；建议 <= 20）
         """
+        # Batch delete recent N
+        try:
+            c = int(count or 0)
+        except Exception:
+            c = 0
+
+        if c > 0:
+            max_n = min(c, self._tid_store_max if self._tid_store_max > 0 else c)
+            tids = list(reversed(self._recent_tids))[:max_n]
+            if not tids:
+                yield event.plain_result("没有可删除的 recent tids")
+                return
+            if not confirm:
+                preview = " ".join(tids[:5])
+                more = "" if len(tids) <= 5 else f" ...(+{len(tids)-5})"
+                yield event.plain_result(f"将删除最近 {len(tids)} 条 tid：{preview}{more}")
+                return
+
+            deleted = 0
+            for t2 in tids:
+                status, result = await asyncio.to_thread(QzonePoster(self.my_qq, self.cookie).delete_by_tid, t2)
+                if status == 200 and result.ok:
+                    deleted += 1
+                await asyncio.sleep(1.0 + random.random() * 2.0)
+            yield event.plain_result(f"批量删除完成：成功={deleted}/{len(tids)}")
+            return
+
         t = (tid or "").strip()
 
         # If user intent is 'latest', fall back to in-memory last tid.
