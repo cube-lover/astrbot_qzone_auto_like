@@ -139,7 +139,8 @@ class QzoneFeedFetcher:
             if isinstance(payload, dict):
                 d = payload.get("data")
                 if isinstance(d, dict):
-                    arr = d.get("data")
+                    # feeds_html_act_all actual list is under friend_data
+                    arr = d.get("friend_data")
                     if isinstance(arr, list):
                         data_items = [x for x in arr if isinstance(x, dict)]
 
