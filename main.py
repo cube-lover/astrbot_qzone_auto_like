@@ -1409,19 +1409,19 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"❌ 评论失败：status={status} code={result.code} msg={hint}")
 
     @filter.llm_tool(name="qz_comment")
-    async def llm_tool_qz_comment(self, count: int = 1, confirm: bool = False, event: AstrMessageEvent = None):
+    async def llm_tool_qz_comment(self, event: AstrMessageEvent, count: str = "1", confirm: bool = False):
         """根据最近发布的说说内容生成并发表评论（仅自己的空间）。
 
         Args:
-            count(int): 评论最近 N 条（默认1；建议 <= 10）
+            count(string): 评论最近 N 条（默认1；建议 <= 10）
             confirm(boolean): 是否确认直接发表评论；false 时只返回草稿
         """
-        n = int(count or 1)
+        try:
+            n = int(str(count or "1").strip())
+        except Exception:
+            n = 1
         if n <= 0:
             n = 1
-
-        if event is None:
-            raise RuntimeError("qz_comment missing event")
 
         posts = list(reversed(self._recent_posts))[:n]
         if not posts:
