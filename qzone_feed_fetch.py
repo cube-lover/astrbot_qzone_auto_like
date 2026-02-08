@@ -1,9 +1,10 @@
 # qzone_feed_fetch.py
-# Fetch QQ空间 infocenter feeds and extract mood posts for commenting.
+# Fetch QQ空间 feed list and extract mood posts for commenting.
 
 from __future__ import annotations
 
 import json
+import random
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -95,18 +96,14 @@ class QzoneFeedFetcher:
             ),
             "cookie": cookie,
             "origin": "https://user.qzone.qq.com",
-            "referer": f"https://user.qzone.qq.com/{self.my_qq}/infocenter?via=toolbar",
+            "referer": f"https://user.qzone.qq.com/{self.my_qq}/main",
         }
 
     def fetch_mood_posts(self, count: int = 20, max_pages: int = 3) -> Tuple[int, List[MoodPost]]:
-        """Fetch latest mood posts from infocenter, across pages, best-effort.
+        """Fetch latest mood posts from your own space (main page feed), across pages.
 
-        We parse for mood posts by extracting data in HTML blocks:
-        - data-uin (host uin)
-        - data-tid (tid)
-        - data-topicid (topic id)
-
-        abstime is taken from JSON item field if possible; otherwise 0.
+        Uses feeds_html_act_all with uin=loginQQ and hostuin=targetQQ (here we use my_qq).
+        This matches what the browser loads on /<uin>/main.
         """
 
         count = int(count) if count else 20
@@ -117,29 +114,23 @@ class QzoneFeedFetcher:
             max_pages = 1
 
         posts: List[MoodPost] = []
+        start = 0
 
-        for page in range(1, max_pages + 1):
-            url = "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more"
-            params = {
-                "uin": self.my_qq,
-                "scope": "0",
-                "view": "1",
-                "flag": "1",
-                "filter": "all",
-                "applist": "all",
-                "refresh": "0",
-                "pagenum": str(page),
-                "count": str(count),
-                "useutf8": "1",
-                "outputhtmlfeed": "1",
-                "g_tk": str(self.g_tk),
-            }
+        for _ in range(max_pages):
+            url = (
+                "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds_html_act_all"
+                f"?uin={self.my_qq}&hostuin={self.my_qq}"
+                "&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
+                f"&begintime=undefined&icServerTime=&start={start}&count={count}"
+                "&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
+                f"&r={random.random()}&g_tk={self.g_tk}"
+            )
 
-            res = requests.get(url, headers=self.headers, params=params, timeout=20)
+            res = requests.get(url, headers=self.headers, timeout=20)
             status = res.status_code
             text = res.text or ""
             if status != 200 or not text:
-                if page == 1:
+                if start == 0:
                     return status, []
                 break
 
@@ -151,6 +142,9 @@ class QzoneFeedFetcher:
                     arr = d.get("data")
                     if isinstance(arr, list):
                         data_items = [x for x in arr if isinstance(x, dict)]
+
+            if not data_items:
+                break
 
             for item in data_items:
                 html = str(item.get("html") or "")
@@ -168,6 +162,10 @@ class QzoneFeedFetcher:
                 host_uin = m.group(2)
                 topic_id = m.group(3)
 
+                # Only keep your own posts.
+                if host_uin != self.my_qq:
+                    continue
+
                 if "_" not in topic_id or "__" not in topic_id:
                     continue
 
@@ -180,8 +178,7 @@ class QzoneFeedFetcher:
 
                 posts.append(MoodPost(host_uin=host_uin, tid=tid, topic_id=topic_id, abstime=abstime))
 
-            if not data_items:
-                break
+            start += count
 
         seen = set()
         out: List[MoodPost] = []
