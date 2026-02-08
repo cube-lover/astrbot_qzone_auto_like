@@ -216,8 +216,16 @@ class QzoneAutoLikePlugin(Star):
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
-        # In-memory: last posted tid for quick delete (clears on restart; no disk persistence).
+        # In-memory: last posted tid for quick delete.
         self._last_tid: str = ""
+
+        # Optional small on-disk store for recent tids (bounded, overwrites file).
+        self._tid_path = Path(__file__).parent / "data" / "recent_tids.json"
+        self._recent_tids: list[str] = []
+        self._tid_store_max = int(self.config.get("tid_store_max", 200) or 200)
+        if self._tid_store_max < 0:
+            self._tid_store_max = 0
+        self._load_recent_tids()
 
         # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
         self._auto_seen: dict[str, float] = {}
@@ -262,6 +270,44 @@ class QzoneAutoLikePlugin(Star):
                 self._liked = set(str(x) for x in data)
         except Exception as e:
             logger.error(f"[Qzone] 加载点赞记录失败: {e}")
+
+    def _load_recent_tids(self) -> None:
+        if self._tid_store_max <= 0:
+            return
+        if not self._tid_path.exists():
+            return
+        try:
+            data = json.loads(self._tid_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                self._recent_tids = [str(x) for x in data if str(x).strip()]
+        except Exception as e:
+            logger.warning(f"[Qzone] 加载 recent_tids 失败: {e}")
+
+    def _save_recent_tids(self) -> None:
+        if self._tid_store_max <= 0:
+            return
+        try:
+            self._tid_path.parent.mkdir(parents=True, exist_ok=True)
+            self._tid_path.write_text(
+                json.dumps(self._recent_tids[-self._tid_store_max :], ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"[Qzone] 保存 recent_tids 失败: {e}")
+
+    def _remember_tid(self, tid: str) -> None:
+        t = (tid or "").strip()
+        if not t:
+            return
+        self._last_tid = t
+        if self._tid_store_max <= 0:
+            return
+        if t in self._recent_tids:
+            self._recent_tids.remove(t)
+        self._recent_tids.append(t)
+        if len(self._recent_tids) > self._tid_store_max:
+            self._recent_tids = self._recent_tids[-self._tid_store_max :]
+        self._save_recent_tids()
 
     def _save_records(self) -> None:
         if not self.persist:
@@ -714,7 +760,7 @@ class QzoneAutoLikePlugin(Star):
             if status == 200 and result.ok:
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
                 if getattr(result, "tid", ""):
-                    self._last_tid = str(result.tid)
+                    self._remember_tid(str(result.tid))
                 yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
@@ -861,7 +907,7 @@ class QzoneAutoLikePlugin(Star):
             if status == 200 and result.ok:
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
                 if getattr(result, "tid", ""):
-                    self._last_tid = str(result.tid)
+                    self._remember_tid(str(result.tid))
                 yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"

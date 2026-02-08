@@ -49,6 +49,11 @@
     "description": "手动大次数点赞时的递增步长（例如10）",
     "default": 10
   },
+  "tid_store_max": {
+    "type": "int",
+    "description": "最多保存多少条最近发布的 tid（0=不落盘；默认200）",
+    "default": 200
+  },
   "ai_post_enabled": {
     "type": "bool",
     "description": "启用AI定时发说说任务（需要已配置文本生成提供商）",
