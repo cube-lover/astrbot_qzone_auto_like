@@ -984,7 +984,18 @@ class QzoneAutoLikePlugin(Star):
         if n <= 0:
             n = 1
 
-        posts = list(reversed(self._recent_posts))[:n]
+        # Latest-first; de-dup by tid while preserving recency order.
+        posts = []
+        seen_tid = set()
+        for item in reversed(self._recent_posts):
+            tid = str(item.get("tid") or "").strip()
+            if not tid or tid in seen_tid:
+                continue
+            seen_tid.add(tid)
+            posts.append(item)
+            if len(posts) >= n:
+                break
+
         if not posts:
             if self._last_tid and (self._last_post_text or "").strip() and n == 1:
                 posts = [{"tid": self._last_tid, "text": self._last_post_text, "ts": time.time()}]
