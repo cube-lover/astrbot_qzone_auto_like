@@ -1506,7 +1506,7 @@ class QzoneAutoLikePlugin(Star):
         comment_uin: str = "",
         confirm: bool = False,
         latest: bool = False,
-        idx: int = 1,
+        idx: str = "1",
     ):
         """删除QQ空间评论（删评）。
 
@@ -1532,7 +1532,7 @@ class QzoneAutoLikePlugin(Star):
                 yield event.plain_result("找不到评论记录（重启后会清空）。请先评论一次，或提供 topic_id/comment_id。")
                 return
             try:
-                n = int(idx or 1)
+                n = int(str(idx or "1"))
             except Exception:
                 n = 1
             if n <= 0:
