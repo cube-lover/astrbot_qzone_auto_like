@@ -72,11 +72,20 @@ class _QzoneClient:
         }
 
     def fetch_keys(self, count: int, target_qq: Optional[str] = None) -> Tuple[int, Set[str], int]:
+        """拉取目标空间的动态链接集合。
+
+        兼容不同前端：优先使用 feeds_html_act_all（较常见），必要时可再扩展其他 CGI。
+        """
         target = str(target_qq or self.my_qq).strip()
+
+        # feeds_html_act_all 参数含义：uin=登录QQ，hostuin=目标空间QQ
         feeds_url = (
             "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
-            f"feeds3_html_more?uin={target}&scope=0&view=1&flag=1&refresh=1&count={count}"
-            f"&outputhtmlfeed=1&g_tk={self.g_tk}"
+            f"feeds_html_act_all?uin={self.my_qq}&hostuin={target}"
+            f"&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
+            f"&begintime=undefined&icServerTime=&start=0&count={count}"
+            f"&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
+            f"&r={random.random()}&g_tk={self.g_tk}"
         )
         res = requests.get(feeds_url, headers=self.headers, timeout=20)
         status = res.status_code
@@ -231,8 +240,11 @@ class QzoneAutoLikePlugin(Star):
                     requests.get,
                     (
                         "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
-                        f"feeds3_html_more?uin={target}&scope=0&view=1&flag=1&refresh=1&count={max(self.max_feeds, limit)}"
-                        f"&outputhtmlfeed=1&g_tk={client.g_tk}"
+                        f"feeds_html_act_all?uin={self.my_qq}&hostuin={target}"
+                        f"&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
+                        f"&begintime=undefined&icServerTime=&start=0&count={max(self.max_feeds, limit)}"
+                        f"&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
+                        f"&r={random.random()}&g_tk={client.g_tk}"
                     ),
                     headers=client.headers,
                     timeout=20,
