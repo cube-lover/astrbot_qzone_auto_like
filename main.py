@@ -222,7 +222,13 @@ class QzoneAutoLikePlugin(Star):
         self._task = asyncio.create_task(self._worker())
         logger.info("[Qzone] auto_start：任务已自动启动")
 
-    async def _like_once(self, client: _QzoneClient, target_qq: str, limit: int) -> Tuple[int, int]:
+    async def _like_once(
+        self,
+        client: _QzoneClient,
+        target_qq: str,
+        limit: int,
+        ignore_history: bool = False,
+    ) -> Tuple[int, int]:
         target = str(target_qq).strip() or self.my_qq
         if limit <= 0:
             limit = 10
@@ -286,7 +292,7 @@ class QzoneAutoLikePlugin(Star):
                     break
 
                 full_key = unikey if unikey.endswith(".1") else (unikey + ".1")
-                if full_key in self._liked:
+                if not ignore_history and full_key in self._liked:
                     continue
                 if full_key in seen_this_round:
                     continue
@@ -346,7 +352,7 @@ class QzoneAutoLikePlugin(Star):
                 target = self._target_qq.strip() or self.my_qq
                 limit = self._manual_like_limit if self._manual_like_limit > 0 else self.max_feeds
 
-                attempted, ok = await self._like_once(client, target, limit)
+                attempted, ok = await self._like_once(client, target, limit, ignore_history=False)
 
                 if attempted == 0:
                     logger.info("[Qzone] 本轮没有新动态待处理")
@@ -402,6 +408,18 @@ class QzoneAutoLikePlugin(Star):
             f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}"
         )
 
+    @filter.command("qz_clear_liked")
+    async def qz_clear_liked(self, event: AstrMessageEvent):
+        """清空已点赞去重记录（内存 + 持久化文件）。"""
+        self._liked.clear()
+        try:
+            if self._data_path.exists():
+                self._data_path.unlink()
+        except Exception as e:
+            logger.warning("[Qzone] 删除点赞记录文件失败: %s", e)
+
+        yield event.plain_result("已清空点赞去重记录（liked_cache=0）")
+
     @filter.command("点赞")
     async def like_other(self, event: AstrMessageEvent, count: str = "10"):
         """输入：/点赞 @某人 [次数]
@@ -443,7 +461,10 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result("用法：/点赞 @某人 20  或  /点赞 3483935913 20")
             return
 
-        # 兜底提取次数：从消息里取最后一个数字，并排除目标QQ号本身
+        # 是否强制：忽略历史去重记录（允许重复尝试点赞）
+        force_like = bool(re.search(r"\b(force|f)\b|强制", msg_text, flags=re.IGNORECASE))
+
+        # 兜底提取次数：从消息里取最后一个数字
         if count_int is None or count_int == 10:
             nums = re.findall(r"\b(\d{1,3})\b", msg_text)
             if nums:
@@ -468,7 +489,7 @@ class QzoneAutoLikePlugin(Star):
             return
 
         yield event.plain_result(
-            f"收到：目标空间={target_qq}，准备点赞（请求 {count_int}，单轮上限 {count_int} 条）..."
+            f"收到：目标空间={target_qq}，准备点赞（请求 {count_int}，单轮上限 {count_int} 条，强制={force_like}）..."
         )
 
         try:
@@ -477,8 +498,10 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"初始化客户端失败：{e}")
             return
 
-        attempted, ok = await self._like_once(client, target_qq, count_int)
-        yield event.plain_result(f"完成：目标空间={target_qq} | 本次尝试={attempted} | 成功={ok}")
+        attempted, ok = await self._like_once(client, target_qq, count_int, ignore_history=force_like)
+        yield event.plain_result(
+            f"完成：目标空间={target_qq} | 本次尝试={attempted} | 成功={ok} | 强制={force_like}"
+        )
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
