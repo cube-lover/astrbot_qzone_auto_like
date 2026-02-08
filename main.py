@@ -964,10 +964,11 @@ class QzoneAutoLikePlugin(Star):
                         self._recent_comment_refs.append(
                             {"topicId": str(topic), "commentId": str(cid), "ts": time.time()}
                         )
+                        logger.info("[Qzone] comment_recorded topicId=%s commentId=%s", topic, cid)
                         if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
                             self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.info("[Qzone] comment_record_failed: %s", e)
                 yield event.plain_result(f"✅ 已评论 tid={tid}")
             else:
                 hint = result.message or "评论失败"
@@ -1066,11 +1067,13 @@ class QzoneAutoLikePlugin(Star):
             attempted += 1
             status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt)
             logger.info(
-                "[Qzone] comment 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                "[Qzone] comment 返回 | status=%s ok=%s code=%s msg=%s comment_id=%s topic_id=%s head=%s",
                 status,
                 result.ok,
                 result.code,
                 result.message,
+                getattr(result, "comment_id", ""),
+                getattr(result, "topic_id", ""),
                 result.raw_head,
             )
             if status == 200 and result.ok:
@@ -1082,6 +1085,7 @@ class QzoneAutoLikePlugin(Star):
                         self._recent_comment_refs.append(
                             {"topicId": str(topic), "commentId": str(cid), "ts": time.time()}
                         )
+                        logger.info("[Qzone] comment_recorded topicId=%s commentId=%s", topic, cid)
                         if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
                             self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
                 except Exception:
