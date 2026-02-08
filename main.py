@@ -99,22 +99,56 @@ class _QzoneClient:
         return status, keys, text_len
 
     def send_like(self, full_key: str) -> Tuple[int, str]:
-        # 点赞接口：w.qzone.qq.com 的 likes CGI（会返回 frameElement.callback(...) 或 JSON）。
-        like_url = (
-            "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/"
-            f"internal_dolike_app?g_tk={self.g_tk}"
-        )
+        # 复刻浏览器：h5.qzone.qq.com 的 proxy/domain -> w.qzone.qq.com likes CGI。
+        like_url = f"https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app?g_tk={self.g_tk}"
+
+        headers = dict(self.headers)
+        headers["origin"] = "https://user.qzone.qq.com"
+        headers["referer"] = "https://user.qzone.qq.com/"
+
+        # full_key 形如：http(s)://user.qzone.qq.com/<hostuin>/mood/<fid>.1
+        # 浏览器实际传的是不带 .1 的 unikey/curkey，并额外带 from/abstime/fid 等字段。
+        hostuin = ""
+        fid = full_key
+        m = re.search(r"user\.qzone\.qq\.com/(\d+)/mood/([a-f0-9]+)", full_key)
+        if m:
+            hostuin = m.group(1)
+            fid = m.group(2)
+        else:
+            if fid.endswith(".1"):
+                fid = fid[:-2]
+            if "/mood/" in fid:
+                fid = fid.split("/mood/", 1)[1]
+
         payload = {
-            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}",
+            "qzreferrer": f"https://user.qzone.qq.com/",
             "opuin": self.my_qq,
-            "unikey": full_key,
-            "curkey": full_key,
+            "unikey": full_key[:-2] if full_key.endswith(".1") else full_key,
+            "curkey": full_key[:-2] if full_key.endswith(".1") else full_key,
+            "from": "1",
             "appid": "311",
             "typeid": "0",
+            "abstime": str(int(time.time())),
+            "fid": fid,
             "active": "0",
             "fupdate": "1",
         }
-        res = requests.post(like_url, headers=self.headers, data=payload, timeout=20)
+
+        # 与浏览器一致：如果能解析到 hostuin，就把更完整的 qzreferrer 补上。
+        if hostuin:
+            payload["qzreferrer"] = (
+                "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds_html_module"
+                "?g_iframeUser=1"
+                f"&i_uin={hostuin}"
+                f"&i_login_uin={self.my_qq}"
+                "&mode=4&previewV8=1&style=35&version=8&needDelOpr=true&transparence=true"
+                "&hideExtend=false&showcount=5"
+                "&MORE_FEEDS_CGI=http%3A%2F%2Fic2.s8.qzone.qq.com%2Fcgi-bin%2Ffeeds%2Ffeeds_html_act_all"
+                "&refer=2"
+                "&paramstring=os-winxp%7C100"
+            )
+
+        res = requests.post(like_url, headers=headers, data=payload, timeout=20)
         return res.status_code, res.text or ""
 
 
