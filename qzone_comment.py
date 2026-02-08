@@ -121,10 +121,12 @@ class QzoneCommenter:
         )
 
         # Aligned with browser FormData (minimal required fields).
-        # Note: topicId is required; it is derived from feed. Accept direct tid for now.
+        # topicId format observed: "<hostUin>_<tid>__1".
+        topic_id = f"{self.my_qq}_{t}__1" if "_" not in t else t
+
         data: Dict[str, Any] = {
             "g_tk": str(self.g_tk),
-            "topicId": t,
+            "topicId": topic_id,
             "feedsType": "100",
             "inCharset": "utf-8",
             "outCharset": "utf-8",
