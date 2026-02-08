@@ -224,6 +224,24 @@ class QzoneAutoLikePlugin(Star):
             len(keys),
         )
 
+        if not keys:
+            # keys=0 且 text_len 很短时，通常是权限/风控/返回结构变化；打印片段方便排查。
+            try:
+                res = await asyncio.to_thread(
+                    requests.get,
+                    (
+                        "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
+                        f"feeds3_html_more?uin={target}&scope=0&view=1&flag=1&refresh=1&count={max(self.max_feeds, limit)}"
+                        f"&outputhtmlfeed=1&g_tk={client.g_tk}"
+                    ),
+                    headers=client.headers,
+                    timeout=20,
+                )
+                head = (res.text or "")[:300].replace("\n", " ").replace("\r", " ")
+                logger.info("[Qzone] feeds head | status=%s head=%s", res.status_code, head)
+            except Exception as e:
+                logger.warning("[Qzone] feeds head 获取失败: %s", e)
+
         if status != 200:
             logger.warning("[Qzone] feeds 非200，可能登录失效/风控/重定向（请检查cookie）")
 
