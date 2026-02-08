@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import json
 import random
 import re
@@ -15,7 +15,6 @@ import requests
 from astrbot.api.star import Star, register
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import ToolSet
-from astrbot.api.message_components import MessageChain
 from astrbot.api import logger
 
 
@@ -41,7 +40,7 @@ def _extract_cookie_value(cookie: str, key: str) -> str:
 
 
 def _sanitize_cookie_for_log(cookie_str: str) -> str:
-    # Cookie 属于登录态，默认不输出任何可关联信息。
+    # Cookie 灞炰簬鐧诲綍鎬侊紝榛樿涓嶈緭鍑轰换浣曞彲鍏宠仈淇℃伅銆?
     if not cookie_str:
         return ""
 
@@ -51,10 +50,10 @@ def _sanitize_cookie_for_log(cookie_str: str) -> str:
 
 class _QzoneClient:
     def __init__(self, my_qq: str, cookie: str):
-        # my_qq: 当前登录 Cookie 对应的 QQ（用于 referer / opuin）
+        # my_qq: 褰撳墠鐧诲綍 Cookie 瀵瑰簲鐨?QQ锛堢敤浜?referer / opuin锛?
         self.my_qq = my_qq
 
-        # 兼容用户从 DevTools 里复制整行 "cookie: ..." 的情况
+        # 鍏煎鐢ㄦ埛浠?DevTools 閲屽鍒舵暣琛?"cookie: ..." 鐨勬儏鍐?
         cookie = (cookie or "").strip()
         if cookie.lower().startswith("cookie:"):
             cookie = cookie.split(":", 1)[1].strip()
@@ -63,7 +62,7 @@ class _QzoneClient:
 
         p_skey = _extract_cookie_value(cookie, "p_skey")
         if not p_skey:
-            raise ValueError("cookie 缺少 p_skey=...（无法计算 g_tk）")
+            raise ValueError("cookie 缂哄皯 p_skey=...锛堟棤娉曡绠?g_tk锛?)
 
         self.g_tk = _get_gtk(p_skey)
         self.headers = {
@@ -76,14 +75,14 @@ class _QzoneClient:
         }
 
     def fetch_keys(self, count: int, target_qq: Optional[str] = None) -> Tuple[int, Set[str], int]:
-        """拉取目标空间的动态链接集合。
+        """鎷夊彇鐩爣绌洪棿鐨勫姩鎬侀摼鎺ラ泦鍚堛€?
 
-        该接口用于“手动 /点赞”（支持 target_qq + 分页/扩展）。
-        自动轮询不走这里（自动轮询用 legacy 自用接口，见 fetch_keys_self_legacy）。
+        璇ユ帴鍙ｇ敤浜庘€滄墜鍔?/鐐硅禐鈥濓紙鏀寔 target_qq + 鍒嗛〉/鎵╁睍锛夈€?
+        鑷姩杞涓嶈蛋杩欓噷锛堣嚜鍔ㄨ疆璇㈢敤 legacy 鑷敤鎺ュ彛锛岃 fetch_keys_self_legacy锛夈€?
         """
         target = str(target_qq or self.my_qq).strip()
 
-        # feeds_html_act_all 参数含义：uin=登录QQ，hostuin=目标空间QQ
+        # feeds_html_act_all 鍙傛暟鍚箟锛歶in=鐧诲綍QQ锛宧ostuin=鐩爣绌洪棿QQ
         feeds_url = (
             "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
             f"feeds_html_act_all?uin={self.my_qq}&hostuin={target}"
@@ -104,9 +103,9 @@ class _QzoneClient:
         return status, keys, text_len
 
     def fetch_keys_self_legacy(self, count: int) -> Tuple[int, Set[str], int]:
-        """自动轮询专用：旧版 feeds3_html_more（仅拉取自己的说说）。
+        """鑷姩杞涓撶敤锛氭棫鐗?feeds3_html_more锛堜粎鎷夊彇鑷繁鐨勮璇达級銆?
 
-        你这边实测该接口更稳定能返回 mood 链接；只用于 worker，不影响手动 /点赞。
+        浣犺繖杈瑰疄娴嬭鎺ュ彛鏇寸ǔ瀹氳兘杩斿洖 mood 閾炬帴锛涘彧鐢ㄤ簬 worker锛屼笉褰卞搷鎵嬪姩 /鐐硅禐銆?
         """
         feeds_url = (
             "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
@@ -125,15 +124,15 @@ class _QzoneClient:
         return status, keys, text_len
 
     def send_like(self, full_key: str) -> Tuple[int, str]:
-        # 复刻浏览器：h5.qzone.qq.com 的 proxy/domain -> w.qzone.qq.com likes CGI。
+        # 澶嶅埢娴忚鍣細h5.qzone.qq.com 鐨?proxy/domain -> w.qzone.qq.com likes CGI銆?
         like_url = f"https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app?g_tk={self.g_tk}"
 
         headers = dict(self.headers)
         headers["origin"] = "https://user.qzone.qq.com"
         headers["referer"] = "https://user.qzone.qq.com/"
 
-        # full_key 形如：http(s)://user.qzone.qq.com/<hostuin>/mood/<fid>.1
-        # 浏览器实际传的是不带 .1 的 unikey/curkey，并额外带 from/abstime/fid 等字段。
+        # full_key 褰㈠锛歨ttp(s)://user.qzone.qq.com/<hostuin>/mood/<fid>.1
+        # 娴忚鍣ㄥ疄闄呬紶鐨勬槸涓嶅甫 .1 鐨?unikey/curkey锛屽苟棰濆甯?from/abstime/fid 绛夊瓧娈点€?
         hostuin = ""
         fid = full_key
         m = re.search(r"user\.qzone\.qq\.com/(\d+)/mood/([a-f0-9]+)", full_key)
@@ -160,7 +159,7 @@ class _QzoneClient:
             "fupdate": "1",
         }
 
-        # 与浏览器一致：如果能解析到 hostuin，就把更完整的 qzreferrer 补上。
+        # 涓庢祻瑙堝櫒涓€鑷达細濡傛灉鑳借В鏋愬埌 hostuin锛屽氨鎶婃洿瀹屾暣鐨?qzreferrer 琛ヤ笂銆?
         if hostuin:
             payload["qzreferrer"] = (
                 "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds_html_module"
@@ -181,7 +180,7 @@ class _QzoneClient:
 @register(
     name="qzone_auto_like",
     author="AI",
-    desc="自动侦测并点赞QQ空间动态（强后台日志版）",
+    desc="鑷姩渚︽祴骞剁偣璧濹Q绌洪棿鍔ㄦ€侊紙寮哄悗鍙版棩蹇楃増锛?,
     version="1.0.0",
     repo="",
 )
@@ -190,28 +189,28 @@ class QzoneAutoLikePlugin(Star):
         super().__init__(context)
         self.config = config or {}
 
-        # 运行时：目标空间（若为空则监控/点赞自己的空间）
+        # 杩愯鏃讹細鐩爣绌洪棿锛堣嫢涓虹┖鍒欑洃鎺?鐐硅禐鑷繁鐨勭┖闂达級
         self._target_qq: str = ""
         self._manual_like_limit: int = 0
 
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
 
-        # AI 定时发说说任务（不依赖群聊名单；按配置开关）
+        # AI 瀹氭椂鍙戣璇翠换鍔★紙涓嶄緷璧栫兢鑱婂悕鍗曪紱鎸夐厤缃紑鍏筹級
         self._ai_task: Optional[asyncio.Task] = None
         self._ai_stop = asyncio.Event()
 
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
-        # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
+        # 浠呯敤浜庤嚜鍔ㄨ疆璇㈢殑鈥滃唴瀛樺幓閲嶁€濓紙涓嶈惤鐩橈級锛氶伩鍏嶆瘡杞噸澶嶇偣鍚屼竴鏉°€?
         self._auto_seen: dict[str, float] = {}
 
         self.my_qq = str(self.config.get("my_qq", "")).strip()
         self.cookie = str(self.config.get("cookie", "")).strip()
         self._target_qq = str(self.config.get("target_qq", "")).strip()
         self.poll_interval = int(self.config.get("poll_interval_sec", 20))
-        # 风控友好：默认放慢点赞间隔（可在配置里改回去）
+        # 椋庢帶鍙嬪ソ锛氶粯璁ゆ斁鎱㈢偣璧為棿闅旓紙鍙湪閰嶇疆閲屾敼鍥炲幓锛?
         self.delay_min = int(self.config.get("like_delay_min_sec", 12))
         self.delay_max = int(self.config.get("like_delay_max_sec", 25))
         if self.delay_min > self.delay_max:
@@ -222,10 +221,10 @@ class QzoneAutoLikePlugin(Star):
         self.enabled = bool(self.config.get("enabled", False))
         self.auto_start = bool(self.config.get("auto_start", False))
 
-        # 去掉缓存/去重机制：不加载历史点赞记录
+        # 鍘绘帀缂撳瓨/鍘婚噸鏈哄埗锛氫笉鍔犺浇鍘嗗彶鐐硅禐璁板綍
 
         logger.info(
-            "[Qzone] 插件初始化 | my_qq=%s poll=%ss delay=[%s,%s] max_feeds=%s persist=%s enabled=%s auto_start=%s liked_cache=%s cookie=%s",
+            "[Qzone] 鎻掍欢鍒濆鍖?| my_qq=%s poll=%ss delay=[%s,%s] max_feeds=%s persist=%s enabled=%s auto_start=%s liked_cache=%s cookie=%s",
             self.my_qq,
             self.poll_interval,
             self.delay_min,
@@ -246,7 +245,7 @@ class QzoneAutoLikePlugin(Star):
             if isinstance(data, list):
                 self._liked = set(str(x) for x in data)
         except Exception as e:
-            logger.error(f"[Qzone] 加载点赞记录失败: {e}")
+            logger.error(f"[Qzone] 鍔犺浇鐐硅禐璁板綍澶辫触: {e}")
 
     def _save_records(self) -> None:
         if not self.persist:
@@ -258,7 +257,7 @@ class QzoneAutoLikePlugin(Star):
                 encoding="utf-8",
             )
         except Exception as e:
-            logger.error(f"[Qzone] 保存点赞记录失败: {e}")
+            logger.error(f"[Qzone] 淇濆瓨鐐硅禐璁板綍澶辫触: {e}")
 
     def _is_running(self) -> bool:
         return self._task is not None and not self._task.done()
@@ -267,23 +266,23 @@ class QzoneAutoLikePlugin(Star):
         self.enabled = bool(value)
         self.config["enabled"] = self.enabled
         try:
-            # AstrBotConfig 支持 save_config；普通 dict 没有
+            # AstrBotConfig 鏀寔 save_config锛涙櫘閫?dict 娌℃湁
             if hasattr(self.config, "save_config"):
                 self.config.save_config()
         except Exception as e:
-            logger.warning(f"[Qzone] 保存 enabled 配置失败: {e}")
+            logger.warning(f"[Qzone] 淇濆瓨 enabled 閰嶇疆澶辫触: {e}")
 
     async def _maybe_autostart(self) -> None:
         if not self.auto_start:
             return
         if not self.enabled:
-            logger.info("[Qzone] auto_start 开启，但 enabled=false，不自动启动")
+            logger.info("[Qzone] auto_start 寮€鍚紝浣?enabled=false锛屼笉鑷姩鍚姩")
             return
         if self._is_running():
             return
         self._stop_event.clear()
         self._task = asyncio.create_task(self._worker())
-        logger.info("[Qzone] auto_start：任务已自动启动")
+        logger.info("[Qzone] auto_start锛氫换鍔″凡鑷姩鍚姩")
 
     def _ai_enabled(self) -> bool:
         return bool(self.config.get("ai_post_enabled", False))
@@ -295,23 +294,23 @@ class QzoneAutoLikePlugin(Star):
             return
         self._ai_stop.clear()
         self._ai_task = asyncio.create_task(self._ai_poster_worker())
-        logger.info("[Qzone] AI post：任务已启动")
+        logger.info("[Qzone] AI post锛氫换鍔″凡鍚姩")
 
     async def _ai_poster_worker(self) -> None:
         if not self.my_qq or not self.cookie:
-            logger.error("[Qzone] AI post 配置缺失：my_qq 或 cookie 为空")
+            logger.error("[Qzone] AI post 閰嶇疆缂哄け锛歮y_qq 鎴?cookie 涓虹┖")
             return
 
         interval_min = int(self.config.get("ai_post_interval_min", 0) or 0)
         daily_time = str(self.config.get("ai_post_daily_time", "") or "").strip()
         if interval_min <= 0 and not daily_time:
-            logger.info("[Qzone] AI post：未配置 interval/daily，任务退出")
+            logger.info("[Qzone] AI post锛氭湭閰嶇疆 interval/daily锛屼换鍔￠€€鍑?)
             return
 
-        # 固定发到当前登录空间
+        # 鍥哄畾鍙戝埌褰撳墠鐧诲綍绌洪棿
         target_umo = None
         try:
-            # umo 用 None 取默认 provider；发送消息用当前会话不好拿，这里仅后台发，不回群
+            # umo 鐢?None 鍙栭粯璁?provider锛涘彂閫佹秷鎭敤褰撳墠浼氳瘽涓嶅ソ鎷匡紝杩欓噷浠呭悗鍙板彂锛屼笉鍥炵兢
             target_umo = None
         except Exception:
             target_umo = None
@@ -330,22 +329,22 @@ class QzoneAutoLikePlugin(Star):
                 provider = self.context.get_using_provider(umo=target_umo)
 
             if not provider:
-                logger.error("[Qzone] AI post：未配置文本生成服务")
+                logger.error("[Qzone] AI post锛氭湭閰嶇疆鏂囨湰鐢熸垚鏈嶅姟")
                 return
 
             system_prompt = (
-                "你是中文写作助手。请输出QQ空间纯文字说说正文。\n"
-                "要求：不尬、不营销、不带链接；1-3句；总字数<=120；只输出正文，不要解释。"
+                "浣犳槸涓枃鍐欎綔鍔╂墜銆傝杈撳嚭QQ绌洪棿绾枃瀛楄璇存鏂囥€俓n"
+                "瑕佹眰锛氫笉灏€佷笉钀ラ攢銆佷笉甯﹂摼鎺ワ紱1-3鍙ワ紱鎬诲瓧鏁?=120锛涘彧杈撳嚭姝ｆ枃锛屼笉瑕佽В閲娿€?
             )
             try:
                 resp = await provider.text_chat(prompt=prompt, system_prompt=system_prompt, context=[])
                 content = (resp.content or "").strip()
             except Exception as e:
-                logger.error(f"[Qzone] AI post：LLM 调用失败: {e}")
+                logger.error(f"[Qzone] AI post锛歀LM 璋冪敤澶辫触: {e}")
                 return
 
             if not content:
-                logger.error("[Qzone] AI post：LLM 返回为空")
+                logger.error("[Qzone] AI post锛歀LM 杩斿洖涓虹┖")
                 return
 
             content = content.strip("\"'` ")
@@ -355,11 +354,11 @@ class QzoneAutoLikePlugin(Star):
                 content = content[:120].rstrip()
 
             if bool(self.config.get("ai_post_mark", True)):
-                content = "【AI发送】" + content
+                content = "銆怉I鍙戦€併€? + content
 
             status, result = await asyncio.to_thread(poster.publish_text, content)
             logger.info(
-                "[Qzone] AI post 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
+                "[Qzone] AI post 杩斿洖 | status=%s ok=%s code=%s msg=%s tid=%s",
                 status,
                 result.ok,
                 result.code,
@@ -374,7 +373,7 @@ class QzoneAutoLikePlugin(Star):
                     await asyncio.sleep(delete_after * 60)
                     ds, dr = await asyncio.to_thread(poster.delete_by_tid, tid)
                     logger.info(
-                        "[Qzone] AI delete 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
+                        "[Qzone] AI delete 杩斿洖 | status=%s ok=%s code=%s msg=%s tid=%s",
                         ds,
                         dr.ok,
                         dr.code,
@@ -430,7 +429,7 @@ class QzoneAutoLikePlugin(Star):
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                logger.error(f"[Qzone] AI post worker 异常: {e}")
+                logger.error(f"[Qzone] AI post worker 寮傚父: {e}")
                 logger.error(traceback.format_exc())
                 await asyncio.sleep(5)
 
@@ -451,7 +450,7 @@ class QzoneAutoLikePlugin(Star):
         liked_ok = 0
         attempted = 0
 
-        # 默认命令仍然是一次取 count=10；只有自定义请求大于10时才启用递增模式。
+        # 榛樿鍛戒护浠嶇劧鏄竴娆″彇 count=10锛涘彧鏈夎嚜瀹氫箟璇锋眰澶т簬10鏃舵墠鍚敤閫掑妯″紡銆?
         ramp_enabled = limit > 10
         ramp_step = int(self.config.get("like_ramp_step", 10))
         if ramp_step <= 0:
@@ -467,12 +466,12 @@ class QzoneAutoLikePlugin(Star):
 
         while attempted < limit:
             if dedup:
-                # 自动轮询：用旧版 self-feeds 接口，更稳定。
+                # 鑷姩杞锛氱敤鏃х増 self-feeds 鎺ュ彛锛屾洿绋冲畾銆?
                 status, keys, text_len = await asyncio.to_thread(client.fetch_keys_self_legacy, cur_count)
             else:
                 status, keys, text_len = await asyncio.to_thread(client.fetch_keys, cur_count, target)
             logger.info(
-                "[Qzone] feeds 返回 | target=%s status=%s text_len=%s keys=%d count=%d",
+                "[Qzone] feeds 杩斿洖 | target=%s status=%s text_len=%s keys=%d count=%d",
                 target,
                 status,
                 text_len,
@@ -481,7 +480,7 @@ class QzoneAutoLikePlugin(Star):
             )
 
             if not keys:
-                # keys=0 且 text_len 很短时，通常是权限/风控/返回结构变化；打印片段方便排查。
+                # keys=0 涓?text_len 寰堢煭鏃讹紝閫氬父鏄潈闄?椋庢帶/杩斿洖缁撴瀯鍙樺寲锛涙墦鍗扮墖娈垫柟渚挎帓鏌ャ€?
                 try:
                     res = await asyncio.to_thread(
                         requests.get,
@@ -499,10 +498,10 @@ class QzoneAutoLikePlugin(Star):
                     head = (res.text or "")[:300].replace("\n", " ").replace("\r", " ")
                     logger.info("[Qzone] feeds head | status=%s head=%s", res.status_code, head)
                 except Exception as e:
-                    logger.warning("[Qzone] feeds head 获取失败: %s", e)
+                    logger.warning("[Qzone] feeds head 鑾峰彇澶辫触: %s", e)
 
             if status != 200:
-                logger.warning("[Qzone] feeds 非200，可能登录失效/风控/重定向（请检查cookie）")
+                logger.warning("[Qzone] feeds 闈?00锛屽彲鑳界櫥褰曞け鏁?椋庢帶/閲嶅畾鍚戯紙璇锋鏌ookie锛?)
 
             if not keys:
                 break
@@ -524,7 +523,7 @@ class QzoneAutoLikePlugin(Star):
                 if ttl < 0:
                     ttl = 0
                 if ttl:
-                    # 清理过期
+                    # 娓呯悊杩囨湡
                     expired = [k for k, ts in self._auto_seen.items() if now_ts - ts > ttl]
                     for k in expired:
                         self._auto_seen.pop(k, None)
@@ -537,15 +536,15 @@ class QzoneAutoLikePlugin(Star):
                     continue
 
                 attempted += 1
-                logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
+                logger.info("[Qzone] 鍙戠幇鏂板姩鎬? %s", full_key[-24:])
 
-                # 进一步抖动：避免固定间隔触发风控
+                # 杩涗竴姝ユ姈鍔細閬垮厤鍥哄畾闂撮殧瑙﹀彂椋庢帶
                 jitter = random.random() * 1.5
                 await asyncio.sleep(random.randint(self.delay_min, self.delay_max) + jitter)
 
                 like_status, resp = await asyncio.to_thread(client.send_like, full_key)
                 resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
-                logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
+                logger.info("[Qzone] like 杩斿洖 | status=%s resp_head=%s", like_status, resp_head)
 
                 code = None
                 msg = ""
@@ -559,19 +558,19 @@ class QzoneAutoLikePlugin(Star):
                 if m2:
                     msg = m2.group(1)
 
-                logger.info("[Qzone] like 结果 | code=%s msg=%s", code, msg)
-                if msg and "记录成功" in msg:
+                logger.info("[Qzone] like 缁撴灉 | code=%s msg=%s", code, msg)
+                if msg and "璁板綍鎴愬姛" in msg:
                     ok = False
                 else:
                     ok = code == 0
 
                 if ok:
                     liked_ok += 1
-                    logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
+                    logger.info("[Qzone] 鉁?鐐硅禐鎴愬姛: %s", full_key[-24:])
                     if dedup:
                         self._auto_seen[full_key] = now_ts
                 else:
-                    logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
+                    logger.warning("[Qzone] 鉂?鐐硅禐澶辫触: %s", full_key[-24:])
 
             if not ramp_enabled:
                 break
@@ -579,31 +578,31 @@ class QzoneAutoLikePlugin(Star):
             if cur_count >= max_count:
                 break
             cur_count = min(cur_count + ramp_step, max_count)
-            # 每次加大 count 前稍微休息一下，降低风控概率
+            # 姣忔鍔犲ぇ count 鍓嶇◢寰紤鎭竴涓嬶紝闄嶄綆椋庢帶姒傜巼
             await asyncio.sleep(1.0 + random.random() * 2.0)
 
         return attempted, liked_ok
 
     async def _worker(self) -> None:
         if not self.enabled:
-            logger.info("[Qzone] enabled=false，worker 不启动")
+            logger.info("[Qzone] enabled=false锛寃orker 涓嶅惎鍔?)
             return
 
         if not self.my_qq or not self.cookie:
-            logger.error("[Qzone] 配置缺失：my_qq 或 cookie 为空，任务无法启动")
+            logger.error("[Qzone] 閰嶇疆缂哄け锛歮y_qq 鎴?cookie 涓虹┖锛屼换鍔℃棤娉曞惎鍔?)
             return
 
         try:
             client = _QzoneClient(self.my_qq, self.cookie)
         except Exception as e:
-            logger.error(f"[Qzone] 初始化客户端失败: {e}")
+            logger.error(f"[Qzone] 鍒濆鍖栧鎴风澶辫触: {e}")
             return
 
-        logger.info("[Qzone] worker 启动 | g_tk=%s", client.g_tk)
+        logger.info("[Qzone] worker 鍚姩 | g_tk=%s", client.g_tk)
 
         while not self._stop_event.is_set():
             try:
-                logger.info("[%s] 正在侦测...（liked_cache=%d）", _now_hms(), len(self._liked))
+                logger.info("[%s] 姝ｅ湪渚︽祴...锛坙iked_cache=%d锛?, _now_hms(), len(self._liked))
 
                 target = self._target_qq.strip() or self.my_qq
                 limit = self._manual_like_limit if self._manual_like_limit > 0 else self.max_feeds
@@ -611,11 +610,11 @@ class QzoneAutoLikePlugin(Star):
                 attempted, ok = await self._like_once(client, target, limit, dedup=True)
 
                 if attempted == 0:
-                    logger.info("[Qzone] 本轮没有新动态待处理")
+                    logger.info("[Qzone] 鏈疆娌℃湁鏂板姩鎬佸緟澶勭悊")
 
                 if self._manual_like_limit > 0:
                     logger.info(
-                        "[Qzone] 手动点赞限制=%d，本轮尝试=%d 成功=%d",
+                        "[Qzone] 鎵嬪姩鐐硅禐闄愬埗=%d锛屾湰杞皾璇?%d 鎴愬姛=%d",
                         self._manual_like_limit,
                         attempted,
                         ok,
@@ -625,28 +624,28 @@ class QzoneAutoLikePlugin(Star):
                 await asyncio.sleep(self.poll_interval)
 
             except Exception as e:
-                logger.error(f"[Qzone] worker 异常: {e}")
+                logger.error(f"[Qzone] worker 寮傚父: {e}")
                 logger.error(traceback.format_exc())
                 await asyncio.sleep(self.poll_interval)
 
-        logger.info("[Qzone] worker 已停止")
+        logger.info("[Qzone] worker 宸插仠姝?)
 
     @filter.command("start")
     async def start(self, event: AstrMessageEvent):
         if self._is_running():
-            yield event.plain_result("点赞任务已经在运行中（请看后台日志）")
+            yield event.plain_result("鐐硅禐浠诲姟宸茬粡鍦ㄨ繍琛屼腑锛堣鐪嬪悗鍙版棩蹇楋級")
             return
 
         self._set_enabled(True)
         self._stop_event.clear()
         self._task = asyncio.create_task(self._worker())
-        yield event.plain_result("🚀 Qzone 自动点赞后台任务已启动（已打开 enabled 开关）")
+        yield event.plain_result("馃殌 Qzone 鑷姩鐐硅禐鍚庡彴浠诲姟宸插惎鍔紙宸叉墦寮€ enabled 寮€鍏筹級")
 
     @filter.command("stop")
     async def stop(self, event: AstrMessageEvent):
         if not self._is_running():
             self._set_enabled(False)
-            yield event.plain_result("当前没有运行中的任务（已关闭 enabled 开关）")
+            yield event.plain_result("褰撳墠娌℃湁杩愯涓殑浠诲姟锛堝凡鍏抽棴 enabled 寮€鍏筹級")
             return
 
         self._set_enabled(False)
@@ -655,20 +654,20 @@ class QzoneAutoLikePlugin(Star):
             await asyncio.wait_for(self._task, timeout=10)
         except Exception:
             pass
-        yield event.plain_result("🛑 点赞任务已停止（已关闭 enabled 开关）")
+        yield event.plain_result("馃洃 鐐硅禐浠诲姟宸插仠姝紙宸插叧闂?enabled 寮€鍏筹級")
 
     @filter.command("status")
     async def status(self, event: AstrMessageEvent):
         target = self._target_qq.strip() or self.my_qq
         yield event.plain_result(
-            f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}"
+            f"杩愯涓?{self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}"
         )
 
     @filter.command("post")
     async def post(self, event: AstrMessageEvent):
-        """发一条纯文字说说。
+        """鍙戜竴鏉＄函鏂囧瓧璇磋銆?
 
-        用法：/post 你的内容...
+        鐢ㄦ硶锛?post 浣犵殑鍐呭...
         """
         text = (event.message_str or "").strip()
         for prefix in ("/post", "post"):
@@ -677,18 +676,18 @@ class QzoneAutoLikePlugin(Star):
                 break
 
         if not text:
-            yield event.plain_result("用法：/post 你的内容（暂仅支持纯文字）")
+            yield event.plain_result("鐢ㄦ硶锛?post 浣犵殑鍐呭锛堟殏浠呮敮鎸佺函鏂囧瓧锛?)
             return
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            yield event.plain_result("閰嶇疆缂哄け锛歮y_qq 鎴?cookie 涓虹┖")
             return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
             status, result = await asyncio.to_thread(poster.publish_text, text)
             logger.info(
-                "[Qzone] post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                "[Qzone] post 杩斿洖 | status=%s ok=%s code=%s msg=%s head=%s",
                 status,
                 result.ok,
                 result.code,
@@ -697,41 +696,41 @@ class QzoneAutoLikePlugin(Star):
             )
 
             if status == 200 and result.ok:
-                yield event.plain_result("✅ 已发送说说")
+                yield event.plain_result("鉁?宸插彂閫佽璇?)
             else:
-                hint = result.message or "发送失败（可能 cookie/风控/验证页）"
-                yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
+                hint = result.message or "鍙戦€佸け璐ワ紙鍙兘 cookie/椋庢帶/楠岃瘉椤碉級"
+                yield event.plain_result(f"鉂?鍙戦€佸け璐ワ細status={status} code={result.code} msg={hint}")
         except Exception as e:
-            logger.error(f"[Qzone] 发说说异常: {e}")
+            logger.error(f"[Qzone] 鍙戣璇村紓甯? {e}")
             logger.error(traceback.format_exc())
-            yield event.plain_result(f"❌ 异常：{e}")
+            yield event.plain_result(f"鉂?寮傚父锛歿e}")
 
     @filter.llm_tool(name="qz_post")
     async def llm_tool_qz_post(self, event: AstrMessageEvent, text: str, confirm: bool = False):
-        """发送QQ空间说说。
+        """鍙戦€丵Q绌洪棿璇磋銆?
 
         Args:
-            text(string): 要发送的说说正文（纯文字）
-            confirm(boolean): 是否确认直接发送；false 时只返回草稿
+            text(string): 瑕佸彂閫佺殑璇磋姝ｆ枃锛堢函鏂囧瓧锛?
+            confirm(boolean): 鏄惁纭鐩存帴鍙戦€侊紱false 鏃跺彧杩斿洖鑽夌
         """
         content = (text or "").strip()
         if not content:
-            yield event.plain_result("草稿为空")
+            yield event.plain_result("鑽夌涓虹┖")
             return
 
         if not confirm:
-            yield event.plain_result(f"草稿（未发送）：{content}")
+            yield event.plain_result(f"鑽夌锛堟湭鍙戦€侊級锛歿content}")
             return
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            yield event.plain_result("閰嶇疆缂哄け锛歮y_qq 鎴?cookie 涓虹┖")
             return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
             status, result = await asyncio.to_thread(poster.publish_text, content)
             logger.info(
-                "[Qzone] llm_tool post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                "[Qzone] llm_tool post 杩斿洖 | status=%s ok=%s code=%s msg=%s head=%s",
                 status,
                 result.ok,
                 result.code,
@@ -739,20 +738,20 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
-                yield event.plain_result("✅ 已发送说说")
+                yield event.plain_result("鉁?宸插彂閫佽璇?)
             else:
-                hint = result.message or "发送失败（可能 cookie/风控/验证页）"
-                yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
+                hint = result.message or "鍙戦€佸け璐ワ紙鍙兘 cookie/椋庢帶/楠岃瘉椤碉級"
+                yield event.plain_result(f"鉂?鍙戦€佸け璐ワ細status={status} code={result.code} msg={hint}")
         except Exception as e:
-            logger.error(f"[Qzone] llm_tool 发说说异常: {e}")
+            logger.error(f"[Qzone] llm_tool 鍙戣璇村紓甯? {e}")
             logger.error(traceback.format_exc())
-            yield event.plain_result(f"❌ 异常：{e}")
+            yield event.plain_result(f"鉂?寮傚父锛歿e}")
 
     @filter.on_llm_request(priority=5)
     async def on_llm_request(self, event: AstrMessageEvent, req):
-        """把 qz_post 工具挂到当前会话的 LLM 请求里。
+        """鎶?qz_post 宸ュ叿鎸傚埌褰撳墠浼氳瘽鐨?LLM 璇锋眰閲屻€?
 
-        说明：这样你用唤醒词聊天时，模型就可以选择调用 qz_post。
+        璇存槑锛氳繖鏍蜂綘鐢ㄥ敜閱掕瘝鑱婂ぉ鏃讹紝妯″瀷灏卞彲浠ラ€夋嫨璋冪敤 qz_post銆?
         """
         try:
             mgr = self.context.get_llm_tool_manager()
@@ -764,13 +763,13 @@ class QzoneAutoLikePlugin(Star):
             ts.add_tool(tool)
             req.func_tool = ts
         except Exception as e:
-            logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
+            logger.warning(f"[Qzone] on_llm_request 鎸傝浇宸ュ叿澶辫触: {e}")
 
     @filter.command("genpost")
     async def genpost(self, event: AstrMessageEvent):
-        """用 AstrBot 已配置的 LLM 生成一条说说，然后自动发送。
+        """鐢?AstrBot 宸查厤缃殑 LLM 鐢熸垚涓€鏉¤璇达紝鐒跺悗鑷姩鍙戦€併€?
 
-        用法：/genpost 主题或要求...
+        鐢ㄦ硶锛?genpost 涓婚鎴栬姹?..
         """
         prompt = (event.message_str or "").strip()
         for prefix in ("/genpost", "genpost"):
@@ -779,31 +778,31 @@ class QzoneAutoLikePlugin(Star):
                 break
 
         if not prompt:
-            yield event.plain_result("用法：/genpost 给我一个主题或要求（如：写条不尬的晚安说说）")
+            yield event.plain_result("鐢ㄦ硶锛?genpost 缁欐垜涓€涓富棰樻垨瑕佹眰锛堝锛氬啓鏉′笉灏殑鏅氬畨璇磋锛?)
             return
 
         provider = self.context.get_using_provider(umo=event.unified_msg_origin)
         if not provider:
-            yield event.plain_result("未配置文本生成服务（请在 AstrBot WebUI 添加/启用提供商）")
+            yield event.plain_result("鏈厤缃枃鏈敓鎴愭湇鍔★紙璇峰湪 AstrBot WebUI 娣诲姞/鍚敤鎻愪緵鍟嗭級")
             return
 
         system_prompt = (
-            "你是中文写作助手。请为QQ空间写一条纯文字说说，符合真人口吻。\n"
-            "要求：不尬、不营销、不带链接；1-3句；总字数<=120；只输出说说正文，不要解释。"
+            "浣犳槸涓枃鍐欎綔鍔╂墜銆傝涓篞Q绌洪棿鍐欎竴鏉＄函鏂囧瓧璇磋锛岀鍚堢湡浜哄彛鍚汇€俓n"
+            "瑕佹眰锛氫笉灏€佷笉钀ラ攢銆佷笉甯﹂摼鎺ワ紱1-3鍙ワ紱鎬诲瓧鏁?=120锛涘彧杈撳嚭璇磋姝ｆ枃锛屼笉瑕佽В閲娿€?
         )
 
         try:
             resp = await provider.text_chat(prompt=prompt, system_prompt=system_prompt, context=[])
             content = (resp.content or "").strip()
         except Exception as e:
-            yield event.plain_result(f"LLM 调用失败：{e}")
+            yield event.plain_result(f"LLM 璋冪敤澶辫触锛歿e}")
             return
 
         if not content:
-            yield event.plain_result("LLM 返回为空")
+            yield event.plain_result("LLM 杩斿洖涓虹┖")
             return
 
-        # 简单清洗：去掉引号/代码块
+        # 绠€鍗曟竻娲楋細鍘绘帀寮曞彿/浠ｇ爜鍧?
         content = content.strip("\"'` ")
         content = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", content)
         content = re.sub(r"```\s*$", "", content).strip()
@@ -811,17 +810,17 @@ class QzoneAutoLikePlugin(Star):
         if len(content) > 120:
             content = content[:120].rstrip()
 
-        yield event.plain_result(f"生成内容：{content}\n正在发送...")
+        yield event.plain_result(f"鐢熸垚鍐呭锛歿content}\n姝ｅ湪鍙戦€?..")
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            yield event.plain_result("閰嶇疆缂哄け锛歮y_qq 鎴?cookie 涓虹┖")
             return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
             status, result = await asyncio.to_thread(poster.publish_text, content)
             logger.info(
-                "[Qzone] genpost->post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                "[Qzone] genpost->post 杩斿洖 | status=%s ok=%s code=%s msg=%s head=%s",
                 status,
                 result.ok,
                 result.code,
@@ -830,27 +829,27 @@ class QzoneAutoLikePlugin(Star):
             )
 
             if status == 200 and result.ok:
-                yield event.plain_result("✅ 已发送说说")
+                yield event.plain_result("鉁?宸插彂閫佽璇?)
             else:
-                hint = result.message or "发送失败（可能 cookie/风控/验证页）"
-                yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
+                hint = result.message or "鍙戦€佸け璐ワ紙鍙兘 cookie/椋庢帶/楠岃瘉椤碉級"
+                yield event.plain_result(f"鉂?鍙戦€佸け璐ワ細status={status} code={result.code} msg={hint}")
         except Exception as e:
-            logger.error(f"[Qzone] genpost 发说说异常: {e}")
+            logger.error(f"[Qzone] genpost 鍙戣璇村紓甯? {e}")
             logger.error(traceback.format_exc())
-            yield event.plain_result(f"❌ 异常：{e}")
+            yield event.plain_result(f"鉂?寮傚父锛歿e}")
 
-    @filter.command("点赞")
+    @filter.command("鐐硅禐")
     async def like_other(self, event: AstrMessageEvent, count: str = "10"):
-        """输入：/点赞 @某人 [次数]
-        或：/点赞 QQ号 [次数]
+        """杈撳叆锛?鐐硅禐 @鏌愪汉 [娆℃暟]
+        鎴栵細/鐐硅禐 QQ鍙?[娆℃暟]
 
-        作用：把目标临时切换到指定QQ空间，并立即执行一次点赞。
-        规则：优先解析 @ 段；若没有 @，则从文本里取第一个纯数字作为QQ号。
+        浣滅敤锛氭妸鐩爣涓存椂鍒囨崲鍒版寚瀹歈Q绌洪棿锛屽苟绔嬪嵆鎵ц涓€娆＄偣璧炪€?
+        瑙勫垯锛氫紭鍏堣В鏋?@ 娈碉紱鑻ユ病鏈?@锛屽垯浠庢枃鏈噷鍙栫涓€涓函鏁板瓧浣滀负QQ鍙枫€?
 
-        兼容说明：部分适配器会吞掉第二个参数（次数），所以这里会从整条消息里兜底提取。
+        鍏煎璇存槑锛氶儴鍒嗛€傞厤鍣ㄤ細鍚炴帀绗簩涓弬鏁帮紙娆℃暟锛夛紝鎵€浠ヨ繖閲屼細浠庢暣鏉℃秷鎭噷鍏滃簳鎻愬彇銆?
         """
-        # count 参数在部分适配器下不可靠（可能被错误填充）。
-        # 这里仅信任 message_str 里明确出现的次数；否则一律默认 10。
+        # count 鍙傛暟鍦ㄩ儴鍒嗛€傞厤鍣ㄤ笅涓嶅彲闈狅紙鍙兘琚敊璇～鍏咃級銆?
+        # 杩欓噷浠呬俊浠?message_str 閲屾槑纭嚭鐜扮殑娆℃暟锛涘惁鍒欎竴寰嬮粯璁?10銆?
         count_int: Optional[int] = None
 
         target_qq = ""
@@ -868,21 +867,21 @@ class QzoneAutoLikePlugin(Star):
         msg_text = event.message_str or ""
 
         if not target_qq:
-            # 从文本里取第一个 QQ 号
+            # 浠庢枃鏈噷鍙栫涓€涓?QQ 鍙?
             m = re.search(r"\b(\d{5,12})\b", msg_text)
             if m:
                 target_qq = m.group(1)
 
         if not target_qq:
-            yield event.plain_result("用法：/点赞 @某人 20  或  /点赞 3483935913 20")
+            yield event.plain_result("鐢ㄦ硶锛?鐐硅禐 @鏌愪汉 20  鎴? /鐐硅禐 3483935913 20")
             return
 
-        # 解析次数：只认明确的“目标后面紧跟次数”的格式
+        # 瑙ｆ瀽娆℃暟锛氬彧璁ゆ槑纭殑鈥滅洰鏍囧悗闈㈢揣璺熸鏁扳€濈殑鏍煎紡
         m_count = None
         if target_qq:
             m_count = re.search(rf"{re.escape(target_qq)}\D+(\d{{1,3}})\b", msg_text)
         if not m_count:
-            m_count = re.search(r"\b点赞\b\D+\d{5,12}\D+(\d{1,3})\b", msg_text)
+            m_count = re.search(r"\b鐐硅禐\b\D+\d{5,12}\D+(\d{1,3})\b", msg_text)
         if m_count:
             try:
                 count_int = int(m_count.group(1))
@@ -899,27 +898,27 @@ class QzoneAutoLikePlugin(Star):
 
         self._target_qq = target_qq
 
-        # 立即执行一次点赞（不依赖后台 worker 是否已启动）
+        # 绔嬪嵆鎵ц涓€娆＄偣璧烇紙涓嶄緷璧栧悗鍙?worker 鏄惁宸插惎鍔級
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空，无法点赞")
+            yield event.plain_result("閰嶇疆缂哄け锛歮y_qq 鎴?cookie 涓虹┖锛屾棤娉曠偣璧?)
             return
 
         yield event.plain_result(
-            f"收到：目标空间={target_qq}，准备点赞（请求 {count_int}，单轮上限 {count_int} 条）..."
+            f"鏀跺埌锛氱洰鏍囩┖闂?{target_qq}锛屽噯澶囩偣璧烇紙璇锋眰 {count_int}锛屽崟杞笂闄?{count_int} 鏉★級..."
         )
 
         try:
             client = _QzoneClient(self.my_qq, self.cookie)
         except Exception as e:
-            yield event.plain_result(f"初始化客户端失败：{e}")
+            yield event.plain_result(f"鍒濆鍖栧鎴风澶辫触锛歿e}")
             return
 
         attempted, ok = await self._like_once(client, target_qq, count_int)
-        yield event.plain_result(f"完成：目标空间={target_qq} | 本次尝试={attempted} | 成功={ok}")
+        yield event.plain_result(f"瀹屾垚锛氱洰鏍囩┖闂?{target_qq} | 鏈灏濊瘯={attempted} | 鎴愬姛={ok}")
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
-        # Bot 启动完成后，根据配置决定是否自动启动
+        # Bot 鍚姩瀹屾垚鍚庯紝鏍规嵁閰嶇疆鍐冲畾鏄惁鑷姩鍚姩
         await self._maybe_autostart()
         await self._maybe_start_ai_task()
 
@@ -939,4 +938,4 @@ class QzoneAutoLikePlugin(Star):
                 pass
 
         self._save_records()
-        logger.info("[Qzone] 插件卸载完成")
+        logger.info("[Qzone] 鎻掍欢鍗歌浇瀹屾垚")
