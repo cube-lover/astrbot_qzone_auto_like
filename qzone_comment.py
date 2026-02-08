@@ -160,7 +160,14 @@ class QzoneCommenter:
             except Exception:
                 code = None
             msg = str(payload.get("message") or payload.get("msg") or "")
-            cid = str(payload.get("commentid") or payload.get("comment_id") or payload.get("cid") or "")
+            cid = str(
+                payload.get("commentid")
+                or payload.get("comment_id")
+                or payload.get("cid")
+                or (payload.get("data") or {}).get("id")
+                or (payload.get("data") or {}).get("commentId")
+                or ""
+            )
             ok = code == 0
             return res.status_code, CommentResult(ok, code, msg, head, cid, topic_id)
 
