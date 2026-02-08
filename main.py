@@ -996,6 +996,59 @@ class QzoneAutoLikePlugin(Star):
             logger.error(traceback.format_exc())
             yield event.plain_result(f"❌ 异常：{e}")
 
+    @filter.command("说说表")
+    async def mood_table(self, event: AstrMessageEvent):
+        text = (event.message_str or "").strip()
+        for prefix in ("/说说表", "说说表"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        n = 10
+        if text and text.isdigit() and len(text) <= 3:
+            try:
+                n = int(text)
+            except Exception:
+                n = 10
+        if n <= 0:
+            n = 10
+        if n > 200:
+            n = 200
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            # page size 10, pages enough to cover n
+            page_size = 10
+            pages = (n + page_size - 1) // page_size
+            status, posts = await asyncio.to_thread(fetcher.fetch_mood_posts, page_size, pages)
+            if status != 200 or not posts:
+                yield event.plain_result(f"获取失败：status={status} posts={len(posts) if posts else 0}")
+                return
+
+            posts = posts[:n]
+
+            def _fmt(ts: int) -> str:
+                try:
+                    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(ts)))
+                except Exception:
+                    return str(ts)
+
+            lines = [f"共 {len(posts)} 条（最新在前）"]
+            i = 1
+            for p in posts:
+                lines.append(f"{i}) {_fmt(p.abstime)} | tid={p.tid}")
+                i += 1
+
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            logger.error(f"[Qzone] 说说表异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
+
     @filter.command("评论")
     async def comment(self, event: AstrMessageEvent):
         """发表评论入口。
