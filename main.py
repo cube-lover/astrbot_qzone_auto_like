@@ -906,6 +906,8 @@ class QzoneAutoLikePlugin(Star):
         用法：/评论 [N]
         - 不带 N：评论最近 1 条
         - 带 N：评论最近 N 条（例如 /评论 4）
+
+        说明：这是“自动生成评论”的命令。要手动指定评论内容，用 /评论发。
         """
         text = (event.message_str or "").strip()
         for prefix in ("/评论", "评论"):
@@ -924,7 +926,6 @@ class QzoneAutoLikePlugin(Star):
 
         posts = list(reversed(self._recent_posts))[:n]
         if not posts:
-            # Fallback: if we just posted via qz_post, we may only have in-memory last text.
             if self._last_tid and (self._last_post_text or "").strip() and n == 1:
                 posts = [{"tid": self._last_tid, "text": self._last_post_text, "ts": time.time()}]
             else:
@@ -947,6 +948,7 @@ class QzoneAutoLikePlugin(Star):
 
         commenter = QzoneCommenter(self.my_qq, self.cookie)
         ok_cnt = 0
+        attempted = 0
         for item in posts:
             tid = str(item.get("tid") or "").strip()
             content = str(item.get("text") or "").strip()
@@ -969,6 +971,7 @@ class QzoneAutoLikePlugin(Star):
             if len(cmt) > 60:
                 cmt = cmt[:60].rstrip()
 
+            attempted += 1
             status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt)
             logger.info(
                 "[Qzone] comment 返回 | status=%s ok=%s code=%s msg=%s head=%s",
@@ -982,7 +985,54 @@ class QzoneAutoLikePlugin(Star):
                 ok_cnt += 1
             await asyncio.sleep(delay_min + random.random() * max(0.0, delay_max - delay_min))
 
-        yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(posts)}")
+        yield event.plain_result(f"评论完成：成功={ok_cnt}/{attempted}")
+
+    @filter.command("评论发")
+    async def comment_send(self, event: AstrMessageEvent):
+        """手动发表评论（仅自己的空间，默认评论最近一条）。
+
+        用法：/评论发 评论内容...
+        """
+        text = (event.message_str or "").strip()
+        for prefix in ("/评论发", "评论发"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        content = (text or "").strip()
+        if not content:
+            yield event.plain_result("用法：/评论发 评论内容...")
+            return
+
+        tid = ""
+        if self._recent_posts:
+            tid = str(self._recent_posts[-1].get("tid") or "").strip()
+        if not tid and self._last_tid:
+            tid = str(self._last_tid)
+
+        if not tid:
+            yield event.plain_result("找不到最近一条说说的 tid（请先用 /post 或 qz_post 发布）")
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        commenter = QzoneCommenter(self.my_qq, self.cookie)
+        status, result = await asyncio.to_thread(commenter.add_comment, tid, content)
+        logger.info(
+            "[Qzone] comment_send 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+            status,
+            result.ok,
+            result.code,
+            result.message,
+            result.raw_head,
+        )
+        if status == 200 and result.ok:
+            yield event.plain_result(f"✅ 已评论 tid={tid}")
+        else:
+            hint = result.message or "评论失败"
+            yield event.plain_result(f"❌ 评论失败：status={status} code={result.code} msg={hint}")
 
     @filter.llm_tool(name="qz_comment")
     async def llm_tool_qz_comment(self, event: AstrMessageEvent, count: int = 1, confirm: bool = False):
