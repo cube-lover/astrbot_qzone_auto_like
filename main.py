@@ -12,7 +12,6 @@ from .qzone_comment import QzoneCommenter
 from .qzone_del_comment import QzoneCommentDeleter
 from .qzone_feed_fetch import QzoneFeedFetcher
 from .qzone_protect import QzoneProtectScanner
-from .qzone_nl_router import route_nl
 from urllib.parse import quote
 
 import requests
@@ -21,41 +20,6 @@ from astrbot.api.star import Star, register
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import ToolSet
 from astrbot.api import logger
-
-
-@filter.on_message(priority=2)
-async def _qzone_nl_entry(self, event: AstrMessageEvent):
-    """Natural language entrypoint.
-
-    This is a reliable alternative to LLM tools: it parses messages starting with '，'
-    and routes them to existing command handlers.
-    """
-
-    try:
-        text = (event.message_str or "").strip()
-        r = route_nl(text)
-        if not r:
-            return
-
-        if r.action == "comment":
-            # Reuse existing /评论 handler by temporarily rewriting message_str.
-            old = event.message_str
-            event.message_str = f"/评论 {r.n}"
-            async for resp in self.comment(event):
-                yield resp
-            event.message_str = old
-            return
-
-        if r.action == "del_comment":
-            old = event.message_str
-            event.message_str = "/删评 1"
-            async for resp in self.del_comment(event):
-                yield resp
-            event.message_str = old
-            return
-
-    except Exception as e:
-        logger.info(f"[Qzone] nl_router skipped: {e}")
 
 
 def _now_hms() -> str:
