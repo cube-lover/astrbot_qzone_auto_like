@@ -99,12 +99,16 @@ class _QzoneClient:
         return status, keys, text_len
 
     def send_like(self, full_key: str) -> Tuple[int, str]:
-        like_url = (
-            "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/"
-            f"internal_dolike_app?g_tk={self.g_tk}"
-        )
+        # 对齐浏览器当前实际使用的点赞入口（h5 域）。
+        like_url = "https://h5.qzone.qq.com/log/post/error/pc/502/internal_dolike_app"
+
+        headers = dict(self.headers)
+        # 浏览器请求里是 same-site + 带 origin/referer
+        headers["origin"] = "https://user.qzone.qq.com"
+        headers["referer"] = "https://user.qzone.qq.com/"
+
         payload = {
-            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}",
+            "qzreferrer": "https://user.qzone.qq.com/",
             "opuin": self.my_qq,
             "unikey": full_key,
             "curkey": full_key,
@@ -113,7 +117,7 @@ class _QzoneClient:
             "active": "0",
             "fupdate": "1",
         }
-        res = requests.post(like_url, headers=self.headers, data=payload, timeout=20)
+        res = requests.post(like_url, headers=headers, data=payload, timeout=20)
         return res.status_code, res.text or ""
 
 
@@ -277,10 +281,20 @@ class QzoneAutoLikePlugin(Star):
             resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
             logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
 
-            ok = False
+            code = None
+            msg = ""
             m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
-            if m and m.group(1) == "0":
-                ok = True
+            if m:
+                try:
+                    code = int(m.group(1))
+                except Exception:
+                    code = None
+            m2 = re.search(r"\"message\"\s*:\s*\"([^\"]*)\"", resp)
+            if m2:
+                msg = m2.group(1)
+
+            logger.info("[Qzone] like 结果 | code=%s msg=%s", code, msg)
+            ok = code == 0
 
             if ok:
                 liked_ok += 1
