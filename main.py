@@ -1020,9 +1020,25 @@ class QzoneAutoLikePlugin(Star):
                     cmt_txt = m.group(1)
 
             cmt = cmt_txt.strip().strip("\"'` ")
-            # Hard guard: never send object repr into Qzone.
+
+            # Debug: if provider returns object repr, log structure to derive correct extraction.
             if "LLMResponse(" in cmt or "MessageChain(" in cmt:
+                try:
+                    logger.info("[Qzone] comment_debug resp_type=%s", type(resp))
+                    keys = [k for k in dir(resp) if not k.startswith("_")]
+                    logger.info("[Qzone] comment_debug resp_dir=%s", keys[:80])
+                    rc = getattr(resp, "result_chain", None)
+                    if rc is not None:
+                        logger.info("[Qzone] comment_debug rc_type=%s", type(rc))
+                        rc_keys = [k for k in dir(rc) if not k.startswith("_")]
+                        logger.info("[Qzone] comment_debug rc_dir=%s", rc_keys[:80])
+                        logger.info("[Qzone] comment_debug rc_repr=%s", (repr(rc) or "")[:800])
+                except Exception as e:
+                    logger.info("[Qzone] comment_debug failed: %s", e)
+
+                # Do not send object repr into Qzone.
                 cmt = ""
+
             if not cmt:
                 continue
             if len(cmt) > 60:
