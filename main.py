@@ -1705,7 +1705,7 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"❌ 异常：{e}")
 
     @filter.on_llm_request(priority=5)
-    async def on_llm_request(self, event: AstrMessageEvent, req):
+    async def on_llm_request(self, event: AstrMessageEvent, req, *args):
         """把 qz_post 工具挂到当前会话的 LLM 请求里。
 
         说明：这样你用唤醒词聊天时，模型就可以选择调用 qz_post。
