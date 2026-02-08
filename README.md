@@ -23,6 +23,10 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 
 ![success_2](success_2.png)
 
+自定义点赞：
+
+![custom_like](custom_like.png)
+
 ## 交流群
 
 不懂的进 QQ 交流群：`460973561`。
