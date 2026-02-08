@@ -152,13 +152,26 @@ class QzoneFeedFetcher:
                     continue
 
                 tag = ""
+                # escaped double quotes
                 m = re.search(r"<i[^>]*\bname=\\\"feed_data\\\"[^>]*>", html)
                 if m:
                     tag = m.group(0)
 
                 if not tag:
-                    # sometimes no escaping
+                    # plain double quotes
                     m = re.search(r"<i[^>]*\bname=\"feed_data\"[^>]*>", html)
+                    if m:
+                        tag = m.group(0)
+
+                if not tag:
+                    # plain single quotes
+                    m = re.search(r"<i[^>]*\bname='feed_data'[^>]*>", html)
+                    if m:
+                        tag = m.group(0)
+
+                if not tag:
+                    # escaped single quotes
+                    m = re.search(r"<i[^>]*\bname=\\'feed_data\\'[^>]*>", html)
                     if m:
                         tag = m.group(0)
 
@@ -176,6 +189,9 @@ class QzoneFeedFetcher:
                     (r"\bdata-tid=\"([^\"]+)\"", "tid"),
                     (r"\bdata-uin=\"(\d+)\"", "uin"),
                     (r"\bdata-topicid=\"([^\"]+)\"", "topic"),
+                    (r"\bdata-tid='([^']+)'", "tid"),
+                    (r"\bdata-uin='(\d+)'", "uin"),
+                    (r"\bdata-topicid='([^']+)'", "topic"),
                 ):
                     mm = re.search(pat, tag)
                     if not mm:
