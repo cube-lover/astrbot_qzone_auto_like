@@ -71,19 +71,24 @@ class _QzoneClient:
             "referer": f"https://user.qzone.qq.com/{my_qq}",
         }
 
-    def fetch_keys(self, count: int, target_qq: Optional[str] = None) -> Tuple[int, Set[str], int]:
-        """拉取目标空间的动态链接集合。
+    def fetch_keys(
+        self, count: int, target_qq: Optional[str] = None, start: int = 0
+    ) -> Tuple[int, Set[str], int]:
+        """拉取目标空间的动态链接集合（支持翻页）。
 
         兼容不同前端：优先使用 feeds_html_act_all（较常见），必要时可再扩展其他 CGI。
         """
         target = str(target_qq or self.my_qq).strip()
+        start = int(start or 0)
+        if start < 0:
+            start = 0
 
         # feeds_html_act_all 参数含义：uin=登录QQ，hostuin=目标空间QQ
         feeds_url = (
             "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
             f"feeds_html_act_all?uin={self.my_qq}&hostuin={target}"
             f"&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
-            f"&begintime=undefined&icServerTime=&start=0&count={count}"
+            f"&begintime=undefined&icServerTime=&start={start}&count={count}"
             f"&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
             f"&r={random.random()}&g_tk={self.g_tk}"
         )
@@ -224,73 +229,96 @@ class QzoneAutoLikePlugin(Star):
         if limit > 100:
             limit = 100
 
-        status, keys, text_len = await asyncio.to_thread(client.fetch_keys, max(self.max_feeds, limit), target)
-        logger.info(
-            "[Qzone] feeds 返回 | target=%s status=%s text_len=%s keys=%d",
-            target,
-            status,
-            text_len,
-            len(keys),
-        )
-
-        if not keys:
-            # keys=0 且 text_len 很短时，通常是权限/风控/返回结构变化；打印片段方便排查。
-            try:
-                res = await asyncio.to_thread(
-                    requests.get,
-                    (
-                        "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
-                        f"feeds_html_act_all?uin={self.my_qq}&hostuin={target}"
-                        f"&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
-                        f"&begintime=undefined&icServerTime=&start=0&count={max(self.max_feeds, limit)}"
-                        f"&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
-                        f"&r={random.random()}&g_tk={client.g_tk}"
-                    ),
-                    headers=client.headers,
-                    timeout=20,
-                )
-                head = (res.text or "")[:300].replace("\n", " ").replace("\r", " ")
-                logger.info("[Qzone] feeds head | status=%s head=%s", res.status_code, head)
-            except Exception as e:
-                logger.warning("[Qzone] feeds head 获取失败: %s", e)
-
-        if status != 200:
-            logger.warning("[Qzone] feeds 非200，可能登录失效/风控/重定向（请检查cookie）")
-
-        if not keys:
-            return 0, 0
+        page_size = max(5, min(int(self.max_feeds or 15), 50))
+        max_pages = 10
 
         liked_ok = 0
         attempted = 0
-        for unikey in sorted(keys):
+        seen_this_round: Set[str] = set()
+
+        for page in range(max_pages):
             if attempted >= limit:
                 break
 
-            full_key = unikey if unikey.endswith(".1") else (unikey + ".1")
-            if full_key in self._liked:
+            start = page * page_size
+            fetch_count = max(page_size, min(limit - attempted, 50))
+
+            status, keys, text_len = await asyncio.to_thread(client.fetch_keys, fetch_count, target, start)
+            logger.info(
+                "[Qzone] feeds 返回 | target=%s start=%s count=%s status=%s text_len=%s keys=%d",
+                target,
+                start,
+                fetch_count,
+                status,
+                text_len,
+                len(keys),
+            )
+
+            if status != 200:
+                logger.warning("[Qzone] feeds 非200，可能登录失效/风控/重定向（请检查cookie）")
+
+            if not keys:
+                if page == 0:
+                    # keys=0 且 text_len 很短时，通常是权限/风控/返回结构变化；打印片段方便排查。
+                    try:
+                        res = await asyncio.to_thread(
+                            requests.get,
+                            (
+                                "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/"
+                                f"feeds_html_act_all?uin={self.my_qq}&hostuin={target}"
+                                f"&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
+                                f"&begintime=undefined&icServerTime=&start=0&count={fetch_count}"
+                                f"&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
+                                f"&r={random.random()}&g_tk={client.g_tk}"
+                            ),
+                            headers=client.headers,
+                            timeout=20,
+                        )
+                        head = (res.text or "")[:300].replace("\n", " ").replace("\r", " ")
+                        logger.info("[Qzone] feeds head | status=%s head=%s", res.status_code, head)
+                    except Exception as e:
+                        logger.warning("[Qzone] feeds head 获取失败: %s", e)
+                break
+
+            progressed = False
+            for unikey in sorted(keys):
+                if attempted >= limit:
+                    break
+
+                full_key = unikey if unikey.endswith(".1") else (unikey + ".1")
+                if full_key in self._liked:
+                    continue
+                if full_key in seen_this_round:
+                    continue
+
+                seen_this_round.add(full_key)
+                attempted += 1
+                progressed = True
+
+                logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
+
+                await asyncio.sleep(random.randint(self.delay_min, self.delay_max))
+
+                like_status, resp = await asyncio.to_thread(client.send_like, full_key)
+                resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
+                logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
+
+                ok = False
+                m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
+                if m and m.group(1) == "0":
+                    ok = True
+
+                if ok:
+                    liked_ok += 1
+                    logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
+                    self._liked.add(full_key)
+                    self._save_records()
+                else:
+                    logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
+
+            if not progressed:
+                # 这一页全是已点赞/重复，继续翻页
                 continue
-
-            attempted += 1
-            logger.info("[Qzone] 发现新动态: %s", full_key[-24:])
-
-            await asyncio.sleep(random.randint(self.delay_min, self.delay_max))
-
-            like_status, resp = await asyncio.to_thread(client.send_like, full_key)
-            resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
-            logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
-
-            ok = False
-            m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
-            if m and m.group(1) == "0":
-                ok = True
-
-            if ok:
-                liked_ok += 1
-                logger.info("[Qzone] ✅ 点赞成功: %s", full_key[-24:])
-                self._liked.add(full_key)
-                self._save_records()
-            else:
-                logger.warning("[Qzone] ❌ 点赞失败: %s", full_key[-24:])
 
         return attempted, liked_ok
 
