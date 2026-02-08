@@ -1420,14 +1420,34 @@ class QzoneAutoLikePlugin(Star):
         if n <= 0:
             n = 1
 
-        posts = list(reversed(self._recent_posts))[:n]
-        if not posts:
-            # Fallback: if we just posted via qz_post, we may only have in-memory last text.
-            if self._last_tid and (self._last_post_text or "").strip() and n == 1:
-                posts = [{"tid": self._last_tid, "text": self._last_post_text, "ts": time.time()}]
-            else:
-                yield event.plain_result("当前说说内容为空，无法评论（请先用 /post 或 qz_post 发布；或检查 post_store_max>0）")
+        # Align tool behavior with /评论 N: always fetch from main page, not local cache.
+        try:
+            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
+            if status != 200 or not posts_obj:
+                diag = getattr(fetcher, "last_diag", "")
+                extra = f" | {diag}" if diag else ""
+                yield event.plain_result(f"❌ 获取主页说说失败：status={status} posts={len(posts_obj)}{extra}")
                 return
+
+            idx = n - 1
+            if idx < 0:
+                idx = 0
+            if idx >= len(posts_obj):
+                yield event.plain_result(f"当前只抓到 {len(posts_obj)} 条说说，无法评论第 {n} 条")
+                return
+
+            target = posts_obj[idx]
+            tid = str(getattr(target, "tid", "") or "").strip()
+            if not tid:
+                yield event.plain_result("❌ 获取到的说说缺少 tid")
+                return
+
+            # We don't always have full text from feed fetch; use a generic prompt.
+            posts = [{"tid": tid, "text": "（根据该说说内容生成一句自然短评）", "ts": time.time()}]
+        except Exception as e:
+            yield event.plain_result(f"❌ 获取主页说说异常：{e}")
+            return
 
         provider = self.context.get_using_provider(umo=event.unified_msg_origin)
         if not provider:
