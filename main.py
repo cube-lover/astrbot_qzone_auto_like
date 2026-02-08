@@ -901,7 +901,13 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.command("评论")
     async def comment(self, event: AstrMessageEvent):
-        """根据最近发布的说说内容发表评论（仅自己的空间）。
+        """发表评论入口。
+
+        用法：
+        - /评论 内容...  (手动评论最近一条)
+        - /评论 [N]     (自动生成评论，评论最近 N 条；不带 N 默认 1)
+
+        说明：为避免 LLM/适配器参数吞掉，这里优先从 message_str 解析。
 
         用法：/评论 [N]
         - 不带 N：评论最近 1 条
@@ -914,6 +920,40 @@ class QzoneAutoLikePlugin(Star):
             if text.startswith(prefix):
                 text = text[len(prefix) :].strip()
                 break
+
+        # If user provided manual comment text, comment the latest post directly.
+        manual = (text or "").strip()
+        if manual and not (manual.isdigit() and len(manual) <= 3):
+            if not self.my_qq or not self.cookie:
+                yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+                return
+
+            tid = ""
+            if self._recent_posts:
+                tid = str(self._recent_posts[-1].get("tid") or "").strip()
+            if not tid and self._last_tid:
+                tid = str(self._last_tid)
+
+            if not tid:
+                yield event.plain_result("找不到最近一条说说的 tid（请先用 /post 或 qz_post 发布）")
+                return
+
+            commenter = QzoneCommenter(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(commenter.add_comment, tid, manual)
+            logger.info(
+                "[Qzone] comment_manual 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+            if status == 200 and result.ok:
+                yield event.plain_result(f"✅ 已评论 tid={tid}")
+            else:
+                hint = result.message or "评论失败"
+                yield event.plain_result(f"❌ 评论失败：status={status} code={result.code} msg={hint}")
+            return
 
         n = 1
         if text and text.isdigit() and len(text) <= 3:
