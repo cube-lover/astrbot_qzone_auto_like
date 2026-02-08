@@ -178,13 +178,23 @@ class QzoneCommenter:
             f"/cgi-bin/emotion_cgi_delcomment_ugc?&g_tk={self.g_tk}"
         )
 
+        # Aligned with browser FormData.
         data: Dict[str, Any] = {
-            "hostuin": self.my_qq,
-            "tid": t,
-            "t1": t,
-            "commentid": cid,
+            "g_tk": str(self.g_tk),
+            "inCharset": "utf-8",
+            "outCharset": "utf-8",
+            "plat": "qzone",
+            "source": "ic",
+            "hostUin": self.my_qq,
+            "uin": self.my_qq,
+            "topicId": t if "_" in t else f"{self.my_qq}_{t}__1",
+            "feedsType": "100",
+            "commentId": cid,
+            "commentUin": self.my_qq,
             "format": "fs",
-            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}/main",
+            "ref": "feeds",
+            "paramstr": "1",
+            "qzreferrer": f"https://user.qzone.qq.com/{self.my_qq}/infocenter?via=toolbar",
         }
         data["rand"] = str(int(time.time() * 1000)) + str(random.randint(100, 999))
 

@@ -9,6 +9,7 @@ from typing import Optional, Set, Tuple
 
 from .qzone_post import QzonePoster
 from .qzone_comment import QzoneCommenter
+from .qzone_del_comment import QzoneCommentDeleter
 from urllib.parse import quote
 
 import requests
@@ -1060,6 +1061,54 @@ class QzoneAutoLikePlugin(Star):
 
         yield event.plain_result(f"评论完成：成功={ok_cnt}/{attempted}")
 
+    @filter.command("删评")
+    async def del_comment(self, event: AstrMessageEvent):
+        """删除评论（删评）。
+
+        用法：/删评 <topicId> <commentId>
+        示例：/删评 2267154199_17072287a6cb88698f750200__1 2
+
+        说明：topicId/commentId 可从浏览器请求 emotion_cgi_delcomment_ugc 的 Form Data 中获取。
+        """
+        text = (event.message_str or "").strip()
+        for prefix in ("/删评", "删评"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        parts = [p for p in (text or "").split() if p.strip()]
+        if len(parts) < 2:
+            yield event.plain_result("用法：/删评 <topicId> <commentId>")
+            return
+
+        topic_id = parts[0].strip()
+        comment_id = parts[1].strip()
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(deleter.delete_comment, topic_id, comment_id, self.my_qq)
+            logger.info(
+                "[Qzone] del_comment 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+            if status == 200 and result.ok:
+                yield event.plain_result("✅ 已删除评论")
+            else:
+                hint = result.message or "删除评论失败"
+                yield event.plain_result(f"❌ 删除评论失败：status={status} code={result.code} msg={hint}")
+        except Exception as e:
+            logger.error(f"[Qzone] 删评异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
+
     @filter.command("评论发")
     async def comment_send(self, event: AstrMessageEvent):
         """手动发表评论（仅自己的空间，默认评论最近一条）。
@@ -1192,6 +1241,55 @@ class QzoneAutoLikePlugin(Star):
             await asyncio.sleep(delay_min + random.random() * max(0.0, delay_max - delay_min))
 
         yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(drafts)}")
+
+    @filter.llm_tool(name="qz_del_comment")
+    async def llm_tool_qz_del_comment(self, event: AstrMessageEvent, topic_id: str = "", comment_id: str = "", comment_uin: str = "", confirm: bool = False):
+        """删除QQ空间评论（删评）。
+
+        LLM 使用指南：
+        - topic_id 通常形如 "<hostUin>_<tid>__1"。
+        - comment_id 是评论唯一 id（可从浏览器 delcomment_ugc 的 FormData 里拿到）。
+
+        Args:
+            topic_id(string): 说说 topicId（形如 2267..._tid__1）
+            comment_id(string): 评论 commentId
+            comment_uin(string): 评论作者 uin（可选；缺省用自己 uin）
+            confirm(boolean): 是否确认直接删除；false 时只返回待删除信息
+        """
+        t = (topic_id or "").strip()
+        cid = (comment_id or "").strip()
+        if not t or not cid:
+            yield event.plain_result("参数不足：需要 topic_id + comment_id")
+            return
+
+        if not confirm:
+            yield event.plain_result(f"待删评（未执行）：topicId={t} commentId={cid}")
+            return
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
+            status, result = await asyncio.to_thread(deleter.delete_comment, t, cid, comment_uin)
+            logger.info(
+                "[Qzone] llm_tool del_comment 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                status,
+                result.ok,
+                result.code,
+                result.message,
+                result.raw_head,
+            )
+            if status == 200 and result.ok:
+                yield event.plain_result("✅ 已删除评论")
+            else:
+                hint = result.message or "删除评论失败"
+                yield event.plain_result(f"❌ 删除评论失败：status={status} code={result.code} msg={hint}")
+        except Exception as e:
+            logger.error(f"[Qzone] llm_tool 删评异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
 
     @filter.llm_tool(name="qz_delete")
     async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False, count: int = 0):
@@ -1339,9 +1437,11 @@ class QzoneAutoLikePlugin(Star):
             try:
                 ts.add_tool(mgr.get_tool("qz_delete"))
                 ts.add_tool(mgr.get_tool("qz_comment"))
+                ts.add_tool(mgr.get_tool("qz_del_comment"))
             except Exception:
                 ts.add_tool(mgr.get_func("qz_delete"))
                 ts.add_tool(mgr.get_func("qz_comment"))
+                ts.add_tool(mgr.get_func("qz_del_comment"))
             req.func_tool = ts
         except Exception as e:
             logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
