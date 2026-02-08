@@ -1161,6 +1161,7 @@ class QzoneAutoLikePlugin(Star):
             # If we got here, we have a target tid but not its text; we will still let LLM
             # generate a generic short comment by feeding a placeholder.
             distinct = [{"tid": tid, "text": "（说说内容未抓取到，生成一句自然的短评）", "ts": time.time()}]
+            posts = distinct
         except Exception as e:
             logger.info("[Qzone] fetch mood posts failed, fallback to cache: %s", e)
 
