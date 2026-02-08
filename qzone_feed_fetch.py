@@ -144,7 +144,9 @@ class QzoneFeedFetcher:
                         data_items = [x for x in arr if isinstance(x, dict)]
 
             if not data_items:
-                break
+                # debug: show head to understand response shape
+                head = (text or "")[:500].replace("\n", " ").replace("\r", " ")
+                raise RuntimeError(f"feeds_html_act_all parse failed: no data_items; head={head}")
 
             for item in data_items:
                 html = str(item.get("html") or "")
