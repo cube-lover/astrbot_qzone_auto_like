@@ -1406,7 +1406,7 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"❌ 评论失败：status={status} code={result.code} msg={hint}")
 
     @filter.llm_tool(name="qz_comment")
-    async def llm_tool_qz_comment(self, event: AstrMessageEvent, count: str = "1", confirm: bool = False):
+    async def llm_tool_qz_comment(self, count: str = "1", confirm: bool = False, event: AstrMessageEvent = None):
         """根据最近发布的说说内容生成并发表评论（仅自己的空间）。
 
         Args:
@@ -1422,6 +1422,9 @@ class QzoneAutoLikePlugin(Star):
 
         # Align tool behavior with /评论 N: always fetch from main page, not local cache.
         try:
+            if event is None:
+                raise RuntimeError("qz_comment missing event")
+
             fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
             status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
             if status != 200 or not posts_obj:
@@ -1517,13 +1520,13 @@ class QzoneAutoLikePlugin(Star):
     @filter.llm_tool(name="qz_del_comment")
     async def llm_tool_qz_del_comment(
         self,
-        event: AstrMessageEvent,
         topic_id: str = "",
         comment_id: str = "",
         comment_uin: str = "",
         confirm: bool = False,
         latest: bool = False,
         idx: str = "1",
+        event: AstrMessageEvent = None,
     ):
         """删除QQ空间评论（删评）。
 
@@ -1539,6 +1542,9 @@ class QzoneAutoLikePlugin(Star):
             latest(boolean): 是否删除最近一次成功评论（基于内存记录，重启清空）
             idx(string): 删除倒数第 idx 条记录（1=最近一次，2=上一次...）
         """
+
+        if event is None:
+            raise RuntimeError("qz_del_comment missing event")
 
         t = (topic_id or "").strip()
         cid = (comment_id or "").strip()
