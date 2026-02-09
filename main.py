@@ -1057,6 +1057,7 @@ class QzoneAutoLikePlugin(Star):
         yield event.plain_result("\n".join(lines))
 
     @filter.command("定时说说")
+    @filter.command("定时任务")
     @filter.command("qz定时")
     @filter.command("qz任务")
     @filter.command("qzone定时")
@@ -1064,13 +1065,15 @@ class QzoneAutoLikePlugin(Star):
         # Back-compat / alias: allow users to say "定时说说任务列表" etc.
         """Control AI scheduled posting.
 
-        用法：
-        - ，定时说说 状态
-        - ，定时说说 开/关
-        - ，定时说说 interval 5
-        - ，定时说说 daily 08:30
-        - ，定时说说 删后 5
-        - ，定时说说 prompt 你的提示词...
+        用法（推荐用“定时任务”）：
+        - ，定时任务 状态
+        - ，定时任务 开/关
+        - ，定时任务 interval 5
+        - ，定时任务 daily 08:30
+        - ，定时任务 删后 5
+        - ，定时任务 prompt 你的提示词...
+
+        兼容旧命令：定时说说 / qz定时 / qz任务 / qzone定时
         """
 
         raw = (event.message_str or "").strip()
@@ -1080,6 +1083,8 @@ class QzoneAutoLikePlugin(Star):
         for prefix in (
             "/定时说说",
             "定时说说",
+            "/定时任务",
+            "定时任务",
             "/qz定时",
             "qz定时",
             "/qz任务",
@@ -1184,7 +1189,7 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result("✅ 已更新 interval prompt")
             return
 
-        yield event.plain_result("用法：，定时说说 状态|开|关|interval 5|daily 08:30|删后 5|prompt ...")
+        yield event.plain_result("用法：，定时任务 状态|开|关|interval 5|daily 08:30|删后 5|prompt ...")
 
     @filter.command("护评扫一次")
     async def protect_scan_once(self, event: AstrMessageEvent):
