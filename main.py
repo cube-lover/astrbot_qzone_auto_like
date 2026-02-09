@@ -1374,7 +1374,8 @@ class QzoneAutoLikePlugin(Star):
         # Always fetch target space's mood list first (same data source as /说说, do not fall back to self cache when @别人)
         try:
             fetcher = QzoneFeedFetcher(host_uin, self.cookie, my_qq=self.my_qq)
-            status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
+            # Align with /说说 and /说说表 pagination parameters to avoid triggering different response shapes.
+            status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 10, 2)
             if status != 200 or not posts_obj:
                 diag = getattr(fetcher, "last_diag", "")
                 extra = f" | {diag}" if diag else ""
