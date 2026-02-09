@@ -1105,12 +1105,19 @@ class QzoneAutoLikePlugin(Star):
             )
             if status == 200 and result.ok:
                 try:
-                    cid = getattr(result, "comment_id", "")
-                    topic = getattr(result, "topic_id", "")
+                    cid = str(getattr(result, "comment_id", "") or "").strip()
+                    topic = str(getattr(result, "topic_id", "") or "").strip()
                     if cid and topic:
-                        self._recent_comment_refs.append(
-                            {"topicId": str(topic), "commentId": str(cid), "ts": time.time()}
-                        )
+                        ref = {"topicId": topic, "commentId": cid, "ts": time.time()}
+                        self._recent_comment_refs = [
+                            r
+                            for r in self._recent_comment_refs
+                            if not (
+                                str(r.get("topicId") or "") == topic
+                                and str(r.get("commentId") or "") == cid
+                            )
+                        ]
+                        self._recent_comment_refs.append(ref)
                         logger.info("[Qzone] comment_recorded topicId=%s commentId=%s", topic, cid)
                         if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
                             self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
@@ -1273,12 +1280,20 @@ class QzoneAutoLikePlugin(Star):
             if status == 200 and result.ok:
                 ok_cnt += 1
                 try:
-                    cid = getattr(result, "comment_id", "")
-                    topic = getattr(result, "topic_id", "")
+                    cid = str(getattr(result, "comment_id", "") or "").strip()
+                    topic = str(getattr(result, "topic_id", "") or "").strip()
                     if cid and topic:
-                        self._recent_comment_refs.append(
-                            {"topicId": str(topic), "commentId": str(cid), "ts": time.time()}
-                        )
+                        ref = {"topicId": topic, "commentId": cid, "ts": time.time()}
+                        # De-dup while preserving order (avoid repeated deletes on same ref)
+                        self._recent_comment_refs = [
+                            r
+                            for r in self._recent_comment_refs
+                            if not (
+                                str(r.get("topicId") or "") == topic
+                                and str(r.get("commentId") or "") == cid
+                            )
+                        ]
+                        self._recent_comment_refs.append(ref)
                         logger.info("[Qzone] comment_recorded topicId=%s commentId=%s", topic, cid)
                         if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
                             self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
