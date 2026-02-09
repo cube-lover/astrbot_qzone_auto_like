@@ -931,11 +931,29 @@ class QzoneAutoLikePlugin(Star):
                     has_comments = "comments-item" in (html2 or "")
                     lines.append(f"module_fetch status={status2} has_feed_data={has_feed_data} has_comments={has_comments}")
 
-                    # Return a larger slice so the user can visually confirm comment blocks exist.
-                    head2 = (html2 or "")[:6000]
-                    tail2 = (html2 or "")[-2000:]
-                    lines.append("module_html_head=\n" + head2)
-                    lines.append("module_html_tail=\n" + tail2)
+                    # Return body slice around feeds list so the user can visually confirm comment blocks exist.
+                    html2 = html2 or ""
+                    s = html2.find('<ul id="host_home_feeds"')
+                    if s < 0:
+                        s = html2.find("host_home_feeds")
+                        if s >= 0:
+                            s = max(0, s - 200)
+
+                    e = -1
+                    if s >= 0:
+                        e = html2.find("</ul>", s)
+                        if e >= 0:
+                            e += len("</ul>")
+
+                    if s >= 0 and e > s:
+                        body2 = html2[s:e]
+                        lines.append("module_body_slice=\n" + body2)
+                    else:
+                        # Fallback: keep a moderate head/tail for diagnosis.
+                        head2 = html2[:2000]
+                        tail2 = html2[-2000:]
+                        lines.append("module_html_head=\n" + head2)
+                        lines.append("module_html_tail=\n" + tail2)
                 except Exception as e:
                     lines.append(f"module_fetch_error: {e}")
 
