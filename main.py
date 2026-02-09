@@ -1056,6 +1056,124 @@ class QzoneAutoLikePlugin(Star):
         ]
         yield event.plain_result("\n".join(lines))
 
+    @filter.command("定时说说")
+    async def ai_post_ctl(self, event: AstrMessageEvent):
+        """Control AI scheduled posting.
+
+        用法：
+        - ，定时说说 状态
+        - ，定时说说 开/关
+        - ，定时说说 interval 5
+        - ，定时说说 daily 08:30
+        - ，定时说说 删后 5
+        - ，定时说说 prompt 你的提示词...
+        """
+
+        raw = (event.message_str or "").strip()
+        text = raw
+        if text.startswith("，") or text.startswith(","):
+            text = text[1:].lstrip()
+        for prefix in ("/定时说说", "定时说说"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        if not text or text in ("状态", "status"):
+            # reuse list output
+            async for r in self.cron_list_local(event):
+                yield r
+            return
+
+        if text in ("开", "开启", "start", "on"):
+            self.config["ai_post_enabled"] = True
+            try:
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+            await self._maybe_start_ai_task()
+            yield event.plain_result("✅ 已开启 AI 定时发说说")
+            return
+
+        if text in ("关", "关闭", "stop", "off"):
+            self.config["ai_post_enabled"] = False
+            try:
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+            if self._ai_task is not None and not self._ai_task.done():
+                self._ai_stop.set()
+            yield event.plain_result("🛑 已关闭 AI 定时发说说")
+            return
+
+        parts = [p for p in text.split() if p.strip()]
+        if len(parts) >= 2 and parts[0].lower() in ("interval", "每隔"):
+            try:
+                n = int(parts[1])
+            except Exception:
+                n = 0
+            if n <= 0:
+                yield event.plain_result("用法：，定时说说 interval 5")
+                return
+            self.config["ai_post_interval_min"] = n
+            try:
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+            await self._maybe_start_ai_task()
+            yield event.plain_result(f"✅ 已设置 interval={n} 分钟")
+            return
+
+        if len(parts) >= 2 and parts[0].lower() in ("daily", "每天"):
+            hhmm = parts[1].strip()
+            if not re.match(r"^\d{1,2}:\d{2}$", hhmm):
+                yield event.plain_result("用法：，定时说说 daily 08:30")
+                return
+            self.config["ai_post_daily_time"] = hhmm
+            try:
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+            await self._maybe_start_ai_task()
+            yield event.plain_result(f"✅ 已设置 daily_time={hhmm}")
+            return
+
+        if len(parts) >= 2 and parts[0] in ("删后", "删除", "delete_after"):
+            try:
+                n = int(parts[1])
+            except Exception:
+                n = -1
+            if n < 0:
+                yield event.plain_result("用法：，定时说说 删后 5（0=不删）")
+                return
+            self.config["ai_post_delete_after_min"] = n
+            try:
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+            yield event.plain_result(f"✅ 已设置 delete_after_min={n}")
+            return
+
+        if parts and parts[0].lower() == "prompt":
+            prompt = text[len(parts[0]) :].strip()
+            if not prompt:
+                yield event.plain_result("用法：，定时说说 prompt 你的提示词")
+                return
+            self.config["ai_post_prompt"] = prompt
+            try:
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+            yield event.plain_result("✅ 已更新 interval prompt")
+            return
+
+        yield event.plain_result("用法：，定时说说 状态|开|关|interval 5|daily 08:30|删后 5|prompt ...")
+
     @filter.command("护评扫一次")
     async def protect_scan_once(self, event: AstrMessageEvent):
         if not self.my_qq or not self.cookie:
