@@ -1198,16 +1198,23 @@ class QzoneAutoLikePlugin(Star):
 
             posts = posts[:n]
 
-            def _fmt(ts: int) -> str:
-                try:
-                    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(ts)))
-                except Exception:
-                    return str(ts)
+            def _fmt(p) -> str:
+                # Prefer Qzone-rendered time string (avoids server timezone issues).
+                fs = str(getattr(p, "feedstime", "") or "").strip()
+                if fs:
+                    return fs
+                ts = int(getattr(p, "abstime", 0) or 0)
+                if ts:
+                    try:
+                        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+                    except Exception:
+                        return str(ts)
+                return "-"
 
             lines = [f"共 {len(posts)} 条（最新在前）"]
             i = 1
             for p in posts:
-                lines.append(f"{i}) {_fmt(p.abstime)} | tid={p.tid}")
+                lines.append(f"{i}) {_fmt(p)} | tid={p.tid}")
                 i += 1
 
             yield event.plain_result("\n".join(lines))

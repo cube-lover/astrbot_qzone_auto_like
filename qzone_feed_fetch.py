@@ -18,6 +18,7 @@ class MoodPost:
     tid: str
     topic_id: str
     abstime: int
+    feedstime: str = ""  # display time from Qzone HTML/JS (e.g. "2025年12月11日 01:39")
     text: str = ""
 
 
@@ -358,6 +359,20 @@ class QzoneFeedFetcher:
                     except Exception:
                         abstime = 0
 
+                # Prefer human-readable time string from payload/html; it matches what Qzone shows and avoids server tz issues.
+                try:
+                    fs = str(item.get("feedstime") or "").strip()
+                    if fs:
+                        feedstime = fs
+                except Exception:
+                    pass
+
+                if not feedstime:
+                    # fallback: extract from HTML header span (e.g. 2025年12月11日 01:39)
+                    m_fs = re.search(r">\s*(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2})\s*<", html)
+                    if m_fs:
+                        feedstime = m_fs.group(1).strip()
+
                 # Extract visible text from feed item HTML.
                 m_info = re.search(r"<div[^>]*class=\\\"f-info\\\"[^>]*>(.*?)</div>", html, re.S)
                 if not m_info:
@@ -383,6 +398,7 @@ class QzoneFeedFetcher:
                         tid=tid,
                         topic_id=topic_id,
                         abstime=abstime,
+                        feedstime=feedstime,
                         text=info_txt,
                     )
                 )
