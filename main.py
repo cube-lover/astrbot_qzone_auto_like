@@ -882,11 +882,58 @@ class QzoneAutoLikePlugin(Star):
             pass
         yield event.plain_result("🛑 点赞任务已停止（已关闭 enabled 开关）")
 
+    @filter.command("护评状态")
+    async def protect_status(self, event: AstrMessageEvent):
+        protect_running = self._protect_task is not None and (not self._protect_task.done())
+        lines = [
+            f"护评 enabled={self.protect_enabled} running={protect_running}",
+            f"interval={self.protect_poll_interval}s pages={self.protect_pages} window_min={self.protect_window_minutes} notify={self.protect_notify_mode}",
+            f"seen_cache={len(self._protect_seen)}",
+        ]
+        yield event.plain_result("\n".join(lines))
+
+    @filter.command("护评扫一次")
+    async def protect_scan_once(self, event: AstrMessageEvent):
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+        try:
+            scanner = QzoneProtectScanner(self.my_qq, self.cookie)
+        except Exception as e:
+            yield event.plain_result(f"护评初始化失败：{e}")
+            return
+
+        pages = self.protect_pages
+        count = 10
+        try:
+            status, refs = await asyncio.to_thread(scanner.scan_recent_comments, pages, count)
+            diag = getattr(scanner, "last_diag", "")
+            errs = getattr(scanner, "last_errors", [])
+            lines = [f"scan status={status} refs={len(refs)}"]
+            if diag:
+                lines.append(diag)
+            if errs:
+                for s in list(errs)[:5]:
+                    lines.append(f"err: {s}")
+            if refs:
+                # show a few samples for verification
+                for r in refs[:3]:
+                    lines.append(
+                        f"ref: topicId={r.topic_id} commentId={r.comment_id} commentUin={r.comment_uin} abstime={r.abstime}"
+                    )
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            logger.error(f"[Qzone] protect scan once 异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"护评扫一次异常：{e}")
+
     @filter.command("status")
     async def status(self, event: AstrMessageEvent):
         target = self._target_qq.strip() or self.my_qq
+        protect_running = self._protect_task is not None and (not self._protect_task.done())
         yield event.plain_result(
-            f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}"
+            f"运行中={self._is_running()} | enabled={self.enabled} | auto_start={self.auto_start} | target={target} | liked_cache={len(self._liked)}\n"
+            f"护评 enabled={self.protect_enabled} running={protect_running} interval={self.protect_poll_interval}s pages={self.protect_pages} window_min={self.protect_window_minutes} notify={self.protect_notify_mode}"
         )
 
     @filter.command("post")
