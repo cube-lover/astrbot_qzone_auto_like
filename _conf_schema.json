@@ -120,6 +120,46 @@
     "description": "interval模式的提示词（prompt），用于生成说说正文",
     "default": "写一条不尬的QQ空间纯文字说说，1-3句，总字数<=120。"
   },
+  "ai_post_notify_enabled": {
+    "type": "bool",
+    "description": "AI定时发说说：是否发送通知消息（默认关闭，避免刷屏）",
+    "default": false
+  },
+  "ai_post_notify_mode": {
+    "type": "string",
+    "description": "AI定时发说说：通知模式 off=不通知；error=仅失败；all=成功+失败",
+    "default": "error"
+  },
+  "ai_post_notify_private_qq": {
+    "type": "string",
+    "description": "AI定时发说说：私聊通知目标QQ（留空=不私聊）",
+    "default": ""
+  },
+  "ai_post_notify_group_id": {
+    "type": "string",
+    "description": "AI定时发说说：群通知目标群号（留空=不群发）",
+    "default": ""
+  },
+  "ai_post_delete_notify_enabled": {
+    "type": "bool",
+    "description": "AI定时删说说：是否发送通知消息（默认关闭）",
+    "default": false
+  },
+  "ai_post_delete_notify_mode": {
+    "type": "string",
+    "description": "AI定时删说说：通知模式 off=不通知；error=仅失败；all=成功+失败",
+    "default": "error"
+  },
+  "ai_post_delete_notify_private_qq": {
+    "type": "string",
+    "description": "AI定时删说说：私聊通知目标QQ（留空=不私聊）",
+    "default": ""
+  },
+  "ai_post_delete_notify_group_id": {
+    "type": "string",
+    "description": "AI定时删说说：群通知目标群号（留空=不群发）",
+    "default": ""
+  },
   "ai_post_daily_time": {
     "type": "string",
     "description": "每天定时发送时间（HH:MM，24小时制；留空=关闭daily模式）",

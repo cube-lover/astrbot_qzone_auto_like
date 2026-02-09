@@ -217,6 +217,21 @@ class QzoneAutoLikePlugin(Star):
         self._ai_task: Optional[asyncio.Task] = None
         self._ai_stop = asyncio.Event()
 
+        # AI post notifications (optional; default off to avoid spamming groups)
+        self.ai_post_notify_enabled = bool(self.config.get("ai_post_notify_enabled", False))
+        self.ai_post_notify_mode = str(self.config.get("ai_post_notify_mode", "error") or "error").strip().lower()
+        if self.ai_post_notify_mode not in ("off", "error", "all"):
+            self.ai_post_notify_mode = "error"
+        self.ai_post_notify_private_qq = str(self.config.get("ai_post_notify_private_qq", "") or "").strip()
+        self.ai_post_notify_group_id = str(self.config.get("ai_post_notify_group_id", "") or "").strip()
+
+        self.ai_post_delete_notify_enabled = bool(self.config.get("ai_post_delete_notify_enabled", False))
+        self.ai_post_delete_notify_mode = str(self.config.get("ai_post_delete_notify_mode", "error") or "error").strip().lower()
+        if self.ai_post_delete_notify_mode not in ("off", "error", "all"):
+            self.ai_post_delete_notify_mode = "error"
+        self.ai_post_delete_notify_private_qq = str(self.config.get("ai_post_delete_notify_private_qq", "") or "").strip()
+        self.ai_post_delete_notify_group_id = str(self.config.get("ai_post_delete_notify_group_id", "") or "").strip()
+
         self._liked: Set[str] = set()
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
@@ -491,6 +506,50 @@ class QzoneAutoLikePlugin(Star):
 
         poster = QzonePoster(self.my_qq, self.cookie)
 
+        async def _send_private(to_qq: str, msg: str) -> None:
+            to_qq = str(to_qq or "").strip()
+            if not to_qq:
+                return
+            if hasattr(self.context, "send_private_message"):
+                await self.context.send_private_message(user_id=to_qq, message=msg)
+                return
+            if hasattr(self.context, "send_private"):
+                await self.context.send_private(user_id=to_qq, message=msg)
+                return
+            raise RuntimeError("context has no send_private_message")
+
+        async def _send_group(to_group: str, msg: str) -> None:
+            to_group = str(to_group or "").strip()
+            if not to_group:
+                return
+            if hasattr(self.context, "send_group_message"):
+                await self.context.send_group_message(group_id=to_group, message=msg)
+                return
+            if hasattr(self.context, "send_group"):
+                await self.context.send_group(group_id=to_group, message=msg)
+                return
+            raise RuntimeError("context has no send_group_message")
+
+        async def _ai_notify(kind: str, msg: str) -> None:
+            enabled = self.ai_post_notify_enabled if kind == "post" else self.ai_post_delete_notify_enabled
+            mode = self.ai_post_notify_mode if kind == "post" else self.ai_post_delete_notify_mode
+            to_private = self.ai_post_notify_private_qq if kind == "post" else self.ai_post_delete_notify_private_qq
+            to_group = self.ai_post_notify_group_id if kind == "post" else self.ai_post_delete_notify_group_id
+
+            if not enabled or mode == "off":
+                return
+            text = str(msg or "").strip()
+            if not text:
+                return
+
+            try:
+                if to_private:
+                    await _send_private(to_private, text)
+                if to_group:
+                    await _send_group(to_group, text)
+            except Exception as e:
+                logger.warning(f"[Qzone] AI notify failed kind={kind}: {e}")
+
         async def _gen_and_post(prompt: str) -> None:
             provider_id = str(self.config.get("ai_post_provider_id", "") or "").strip()
             provider = None
@@ -540,6 +599,16 @@ class QzoneAutoLikePlugin(Star):
                 getattr(result, "tid", ""),
             )
 
+            # Optional notify
+            ok = bool(status == 200 and result.ok)
+            if ok and self.ai_post_notify_mode == "all":
+                await _ai_notify("post", f"AI发说说成功 tid={getattr(result, 'tid', '')}")
+            if (not ok) and self.ai_post_notify_mode in ("error", "all"):
+                await _ai_notify(
+                    "post",
+                    f"AI发说说失败 status={status} code={getattr(result, 'code', '')} msg={getattr(result, 'message', '')}",
+                )
+
             delete_after = int(self.config.get("ai_post_delete_after_min", 0) or 0)
             tid = getattr(result, "tid", "")
             if status == 200 and result.ok and delete_after > 0 and tid:
@@ -554,6 +623,16 @@ class QzoneAutoLikePlugin(Star):
                         dr.message,
                         tid,
                     )
+
+                    # Optional notify
+                    ok = bool(ds == 200 and dr.ok)
+                    if ok and self.ai_post_delete_notify_mode == "all":
+                        await _ai_notify("delete", f"AI删说说成功 tid={tid}")
+                    if (not ok) and self.ai_post_delete_notify_mode in ("error", "all"):
+                        await _ai_notify(
+                            "delete",
+                            f"AI删说说失败 status={ds} code={getattr(dr, 'code', '')} msg={getattr(dr, 'message', '')} tid={tid}",
+                        )
                 asyncio.create_task(_del_later())
 
         # daily_time: HH:MM
