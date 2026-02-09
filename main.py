@@ -2384,9 +2384,10 @@ class QzoneAutoLikePlugin(Star):
         await self._maybe_autostart()
         await self._maybe_start_ai_task()
 
-        if self.protect_enabled and self._protect_task is None:
-            self._protect_stop.clear()
-            self._protect_task = asyncio.create_task(self._protect_worker())
+        if self.protect_enabled:
+            if self._protect_task is None or self._protect_task.done():
+                self._protect_stop.clear()
+                self._protect_task = asyncio.create_task(self._protect_worker())
 
     async def terminate(self):
         if self._is_running():

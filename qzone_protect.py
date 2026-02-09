@@ -50,8 +50,9 @@ def _try_extract_json_from_callback(text: str) -> Optional[dict]:
 
     m = re.search(r"_Callback\s*\(\s*(\{.*\})\s*\)\s*;?\s*$", t, re.S)
     if m:
+        body = m.group(1)
         try:
-            return json.loads(m.group(1))
+            return json.loads(body)
         except Exception:
             return None
 
@@ -136,9 +137,15 @@ class QzoneProtectScanner:
                     return res.status_code, []
                 break
 
-            payload = _try_extract_json_from_callback(res.text or "")
+            raw_text = res.text or ""
+            payload = _try_extract_json_from_callback(raw_text)
             if not isinstance(payload, dict):
-                self.last_errors.append(f"page={pagenum} invalid_payload")
+                head = raw_text[:260].replace("\n", " ").replace("\r", " ")
+                # Detect common cases quickly.
+                if "<!DOCTYPE html" in raw_text[:2000] or "<html" in raw_text[:2000]:
+                    self.last_errors.append(f"page={pagenum} invalid_payload html_page head={head}")
+                else:
+                    self.last_errors.append(f"page={pagenum} invalid_payload js_literal_or_other head={head}")
                 if pagenum == 1:
                     return res.status_code, []
                 break
@@ -151,7 +158,7 @@ class QzoneProtectScanner:
             arr = data.get("data")
             if not isinstance(arr, list):
                 # Keep a short head for debugging. This often changes by account/region.
-                head = (res.text or "")[:240].replace("\n", " ").replace("\r", " ")
+                head = raw_text[:260].replace("\n", " ").replace("\r", " ")
                 self.last_errors.append(f"page={pagenum} data.data_not_list type={type(arr).__name__} head={head}")
                 break
 
