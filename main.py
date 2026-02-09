@@ -1029,6 +1029,53 @@ class QzoneAutoLikePlugin(Star):
         ]
         yield event.plain_result("\n".join([s for s in lines if s and not s.endswith('=')]))
 
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def _intercept_local_scheduler_cmds(self, event: AstrMessageEvent):
+        # Intercept scheduler commands early to prevent external tool-loop agents from hijacking them.
+        raw = (event.message_str or "").strip()
+        if not raw:
+            return
+
+        txt = raw
+        if txt.startswith("，") or txt.startswith(","):
+            txt = txt[1:].lstrip()
+
+        if not txt:
+            return
+
+        hit = False
+        for p in (
+            "qz定时",
+            "qz任务",
+            "qzone定时",
+            "定时任务",
+            "定时任务列表",
+            "定时说说",
+            "定时说说任务列表",
+        ):
+            if txt.startswith(p):
+                hit = True
+                break
+
+        if not hit:
+            return
+
+        # Route to local handlers.
+        try:
+            if txt.startswith("定时任务列表") or txt.startswith("定时说说任务列表"):
+                async for r in self.cron_list_local(event):
+                    yield r
+            elif txt.startswith("定时任务") or txt.startswith("定时说说") or txt.startswith("qz定时") or txt.startswith("qz任务") or txt.startswith("qzone定时"):
+                async for r in self.ai_post_ctl(event):
+                    yield r
+            else:
+                return
+        finally:
+            try:
+                event.stop_event()
+            except Exception:
+                pass
+
     @filter.command("定时任务列表")
     async def cron_list_local(self, event: AstrMessageEvent):
         """List plugin-local scheduled tasks (AI post interval/daily + deletion policy)."""
