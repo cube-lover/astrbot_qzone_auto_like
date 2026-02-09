@@ -914,6 +914,7 @@ class QzoneAutoLikePlugin(Star):
                 lines.append(diag)
             if errs:
                 for s in list(errs)[:5]:
+                    # keep full head for inspection in debug versions
                     lines.append(f"err: {s}")
             if refs:
                 # show a few samples for verification
