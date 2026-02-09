@@ -465,8 +465,15 @@ class QzoneAutoLikePlugin(Star):
         return bool(self.config.get("ai_post_enabled", False))
 
     async def _maybe_start_ai_task(self) -> None:
+        # Start only when enabled and interval/daily is configured.
         if not self._ai_enabled():
             return
+
+        interval_min = int(self.config.get("ai_post_interval_min", 0) or 0)
+        daily_time = str(self.config.get("ai_post_daily_time", "") or "").strip()
+        if interval_min <= 0 and not daily_time:
+            return
+
         if self._ai_task is not None and not self._ai_task.done():
             return
         self._ai_stop.clear()
@@ -484,6 +491,97 @@ class QzoneAutoLikePlugin(Star):
         self._protect_stop.clear()
         self._protect_task = asyncio.create_task(self._protect_worker())
         logger.info("[Qzone] protect worker task created (fallback)")
+
+    def _try_parse_and_apply_ai_schedule(self, text: str) -> tuple[bool, str]:
+        """Parse natural language schedule settings and apply to config.
+
+        Returns:
+            (ok, message)
+        """
+
+        src = (text or "").strip()
+        if not src:
+            return False, ""
+
+        # Only attempt when it looks like a schedule request.
+        if not ("每" in src or "分钟" in src or "interval" in src or "daily" in src or "删" in src or "删除" in src):
+            return False, ""
+
+        # interval minutes
+        interval = None
+        m = re.search(r"每隔\s*(\d{1,3})\s*分", src)
+        if not m:
+            m = re.search(r"每\s*(\d{1,3})\s*分", src)
+        if not m:
+            m = re.search(r"(\d{1,3})\s*(?:min|mins|minutes)\b", src, re.I)
+        if not m:
+            m = re.search(r"(\d{1,3})\s*分钟", src)
+        if m:
+            try:
+                interval = int(m.group(1))
+            except Exception:
+                interval = None
+
+        delete_after = None
+        m = re.search(r"(\d{1,3})\s*分钟后\s*(?:自动)?(?:删除|删)", src)
+        if not m:
+            m = re.search(r"删后\s*(\d{1,3})", src)
+        if m:
+            try:
+                delete_after = int(m.group(1))
+            except Exception:
+                delete_after = None
+
+        # daily time HH:MM
+        daily = None
+        m = re.search(r"每天\s*(\d{1,2}:\d{2})", src)
+        if not m:
+            m = re.search(r"daily\s*(\d{1,2}:\d{2})", src, re.I)
+        if m:
+            daily = m.group(1)
+
+        # content/prompt extraction
+        prompt = ""
+        m = re.search(r"内容(?:是|为)?\s*([^，。,\n\r]+)", src)
+        if m:
+            prompt = m.group(1).strip()
+        if not prompt:
+            # patterns like: 发一条XXX说说
+            m = re.search(r"发(?:一条|1条)?\s*([^，。,\n\r]{1,80})\s*说说", src)
+            if m:
+                prompt = m.group(1).strip()
+        if not prompt:
+            # fallback: take tail after interval phrase
+            m = re.search(r"分钟\s*发(?:一条|1条)?\s*([^，。,\n\r]{1,80})", src)
+            if m:
+                prompt = m.group(1).strip()
+
+        changed = []
+
+        if interval is not None and interval > 0:
+            self.config["ai_post_interval_min"] = interval
+            changed.append(f"间隔={interval}分钟")
+
+        if daily:
+            self.config["ai_post_daily_time"] = daily
+            changed.append(f"每天={daily}")
+
+        if delete_after is not None and delete_after >= 0:
+            self.config["ai_post_delete_after_min"] = delete_after
+            changed.append(f"删后={delete_after}分钟")
+
+        if prompt:
+            self.config["ai_post_prompt"] = prompt
+            changed.append(f"提示词={prompt}")
+
+        if not changed:
+            return False, ""
+
+        # enable
+        self.config["ai_post_enabled"] = True
+
+        msg = "✅ 已按自然语言设置定时任务：" + " | ".join(changed) + "\n已自动开启：，定时任务 列表 可查看状态"
+        return True, msg
 
     async def _ai_poster_worker(self) -> None:
         if not self.my_qq or not self.cookie:
@@ -1095,11 +1193,11 @@ class QzoneAutoLikePlugin(Star):
 
         lines = [
             "本插件定时任务（AI发说说）：",
-            f"ai_post_enabled={enabled} task={ai_state} running={ai_running}",
-            f"interval_min={interval_min} daily_time={daily_time or '-'} delete_after_min={delete_after} mark={mark}",
-            f"provider_id={provider_id or '-'}",
-            f"notify_post enabled={self.ai_post_notify_enabled} mode={self.ai_post_notify_mode} private={self.ai_post_notify_private_qq or '-'} group={self.ai_post_notify_group_id or '-'}",
-            f"notify_delete enabled={self.ai_post_delete_notify_enabled} mode={self.ai_post_delete_notify_mode} private={self.ai_post_delete_notify_private_qq or '-'} group={self.ai_post_delete_notify_group_id or '-'}",
+            f"开关: {enabled} | 任务: {ai_state} | 运行中: {ai_running}",
+            f"间隔(分钟): {interval_min} | 每日: {daily_time or '-'} | 删后(分钟): {delete_after} | AI标记: {mark}",
+            f"模型(provider_id): {provider_id or '-'}",
+            f"通知(发): enabled={self.ai_post_notify_enabled} mode={self.ai_post_notify_mode} 私聊={self.ai_post_notify_private_qq or '-'} 群={self.ai_post_notify_group_id or '-'}",
+            f"通知(删): enabled={self.ai_post_delete_notify_enabled} mode={self.ai_post_delete_notify_mode} 私聊={self.ai_post_delete_notify_private_qq or '-'} 群={self.ai_post_delete_notify_group_id or '-'}",
         ]
         yield event.plain_result("\n".join(lines))
 
@@ -1109,6 +1207,11 @@ class QzoneAutoLikePlugin(Star):
     @filter.command("qz任务")
     @filter.command("qzone定时")
     async def ai_post_ctl(self, event: AstrMessageEvent):
+        # Best-effort: auto-start the worker when user opens the panel / uses commands.
+        try:
+            await self._maybe_start_ai_task()
+        except Exception:
+            pass
         # Back-compat / alias: allow users to say "定时说说任务列表" etc.
         """Control AI scheduled posting.
 
@@ -1146,6 +1249,21 @@ class QzoneAutoLikePlugin(Star):
         if not text or text in ("状态", "status", "任务列表", "列表", "list"):
             async for r in self.cron_list_local(event):
                 yield r
+            return
+
+        # Natural language quick-setup (only under our command prefix):
+        # Examples:
+        # - ，定时任务 每隔五分钟发一条Python测试中 五分钟后自动删除
+        # - ，qz定时 每5分钟 发 Python测试中 删后5
+        ok, applied = self._try_parse_and_apply_ai_schedule(text)
+        if ok:
+            try:
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+            await self._maybe_start_ai_task()
+            yield event.plain_result(applied)
             return
 
         if text in ("开", "开启", "start", "on"):
@@ -1236,7 +1354,7 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result("✅ 已更新 interval prompt")
             return
 
-        yield event.plain_result("用法：，定时任务 状态|开|关|interval 5|daily 08:30|删后 5|prompt ...")
+        yield event.plain_result("用法：，定时任务 状态|开|关|interval 5|daily 08:30|删后 5|prompt ... | 或直接说：每隔五分钟发一条Python测试中，五分钟后自动删除")
 
     @filter.command("护评扫一次")
     async def protect_scan_once(self, event: AstrMessageEvent):
