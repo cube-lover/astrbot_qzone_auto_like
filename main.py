@@ -1013,18 +1013,28 @@ class QzoneAutoLikePlugin(Star):
                 break
 
         # optional: @12345 to fetch other's space
-        # (align with /点赞: aiocqhttp message_obj is usually an object with .message chain)
+        # (align with /点赞: aiocqhttp event.message_obj is usually a MessageChain-like object)
         target_uin = ""
         try:
-            chain = getattr(getattr(event, "message_obj", None), "message", None)
+            obj = getattr(event, "message_obj", None)
+            chain = None
+            if obj is not None:
+                chain = getattr(obj, "message", None)
+                if chain is None and isinstance(obj, list):
+                    chain = obj
             if chain is None:
-                chain = getattr(event, "message_obj", None) or []
+                chain = []
+
             for seg in chain:
                 if getattr(seg, "type", None) in ("at", "mention"):
-                    u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
-                    if u.isdigit():
-                        target_uin = u
-                        break
+                    # support common field names
+                    for k in ("qq", "target", "user_id", "uin"):
+                        v = str(getattr(seg, k, "") or "").strip()
+                        if v.isdigit():
+                            target_uin = v
+                            break
+                if target_uin:
+                    break
         except Exception:
             pass
 
@@ -1185,15 +1195,24 @@ class QzoneAutoLikePlugin(Star):
         # Extract mentioned QQ (if any) from message_obj / plain text.
         target_uin = ""
         try:
-            chain = getattr(getattr(event, "message_obj", None), "message", None)
+            obj = getattr(event, "message_obj", None)
+            chain = None
+            if obj is not None:
+                chain = getattr(obj, "message", None)
+                if chain is None and isinstance(obj, list):
+                    chain = obj
             if chain is None:
-                chain = getattr(event, "message_obj", None) or []
+                chain = []
+
             for seg in chain:
                 if getattr(seg, "type", None) in ("at", "mention"):
-                    u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
-                    if u.isdigit():
-                        target_uin = u
-                        break
+                    for k in ("qq", "target", "user_id", "uin"):
+                        v = str(getattr(seg, k, "") or "").strip()
+                        if v.isdigit():
+                            target_uin = v
+                            break
+                if target_uin:
+                    break
         except Exception:
             pass
 
