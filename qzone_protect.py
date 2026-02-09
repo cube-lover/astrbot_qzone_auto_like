@@ -37,7 +37,92 @@ def _pick_skey_for_gtk(cookie: str) -> str:
     return ""
 
 
+def _extract_data_array_from_callback(text: str) -> str:
+    """Extract the `data:[ ... ]` array body from a _Callback(...) JS-literal response.
+
+    This endpoint often returns JS object literal (unquoted keys, single quotes, undefined),
+    so we cannot rely on json.loads. We only need to locate the `data:[ ... ]` segment
+    and return the inner content (without the surrounding brackets).
+    """
+
+    if not text:
+        return ""
+
+    s = text
+    m = re.search(r"\bdata\s*:\s*\[", s)
+    if not m:
+        return ""
+
+    i = m.end()  # position after '['
+    depth = 1
+    in_str = False
+    esc = False
+    quote = ""
+    j = i
+    while j < len(s):
+        ch = s[j]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+        else:
+            if ch in ("\"", "'"):
+                in_str = True
+                quote = ch
+            elif ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    return s[i:j]
+        j += 1
+
+    return ""
+
+
+def _iter_html_blobs_from_data_array(arr_body: str, limit: int = 200) -> List[str]:
+    """Extract html:'...'</li> blobs from the array body using anchor slicing.
+
+    We slice from `html:` to the next `,opuin:` when present (matches real payloads)
+    and decode common escapes.
+    """
+
+    if not arr_body:
+        return []
+
+    out: List[str] = []
+    for m in re.finditer(r"\bhtml\s*:\s*", arr_body):
+        tail = arr_body[m.end() :]
+        end_m = re.search(r",\s*opuin\s*:\s*", tail)
+        if not end_m:
+            # fallback: try to end at next `,\s*uin:` (some items may differ)
+            end_m = re.search(r",\s*uin\s*:\s*", tail)
+        if not end_m:
+            continue
+
+        blob = tail[: end_m.start()].strip().rstrip(",")
+        if len(blob) >= 2 and blob[0] in ("'", '"') and blob[-1] == blob[0]:
+            html = blob[1:-1]
+        else:
+            html = blob
+
+        html = html.replace("\\x3C", "<").replace("\\x3E", ">")
+        html = html.replace("\\/", "/")
+        html = html.replace("\\\"", '"').replace("\\'", "'")
+        html = html.replace("\\x22", '"')
+
+        out.append(html)
+        if limit > 0 and len(out) >= limit:
+            break
+
+    return out
+
+
 def _try_extract_json_from_callback(text: str) -> Optional[dict]:
+    # Best-effort strict JSON parse; many responses are JS-literal and will fail.
     if not text:
         return None
     t = text.strip()
@@ -108,6 +193,8 @@ class QzoneProtectScanner:
         feeds_items = 0
         html_items = 0
         comment_hits = 0
+        html_blobs = 0
+        topic_hits = 0
         pages = int(pages) if pages else 1
         if pages <= 0:
             pages = 1
@@ -139,38 +226,87 @@ class QzoneProtectScanner:
 
             raw_text = res.text or ""
             payload = _try_extract_json_from_callback(raw_text)
-            if not isinstance(payload, dict):
-                head = raw_text[:1200].replace("\n", " ").replace("\r", " ")
-                # Detect common cases quickly.
-                if "<!DOCTYPE html" in raw_text[:2000] or "<html" in raw_text[:2000]:
-                    self.last_errors.append(f"page={pagenum} invalid_payload html_page head={head}")
-                else:
-                    self.last_errors.append(f"page={pagenum} invalid_payload js_literal_or_other head={head}")
+
+            # Path A: strict JSON (rare)
+            if isinstance(payload, dict):
+                data = payload.get("data")
+                if not isinstance(data, dict):
+                    self.last_errors.append(f"page={pagenum} missing_data")
+                    break
+
+                arr = data.get("data")
+                if not isinstance(arr, list):
+                    head = raw_text[:1200].replace("\n", " ").replace("\r", " ")
+                    self.last_errors.append(f"page={pagenum} data.data_not_list type={type(arr).__name__} head={head}")
+                    break
+
+                feeds_items += len(arr)
+
+                for item in arr:
+                    if not isinstance(item, dict):
+                        continue
+
+                    html = str(item.get("html") or "")
+                    if not html:
+                        continue
+                    html_items += 1
+
+                    m = re.search(
+                        r"name=\\\"feed_data\\\"[^>]*\bdata-tid=\\\"([^\\\"]+)\\\"[^>]*\bdata-topicid=\\\"([^\\\"]+)\\\"",
+                        html,
+                    )
+                    if not m:
+                        continue
+
+                    tid = m.group(1)
+                    topic_id = m.group(2)
+                    topic_hits += 1
+
+                    abstime = 0
+                    try:
+                        if "abstime" in item:
+                            abstime = int(str(item.get("abstime") or 0))
+                    except Exception:
+                        abstime = 0
+
+                    for cm in re.finditer(
+                        r"comments-item[^>]*data-type=\\\"commentroot\\\"[^>]*data-tid=\\\"(\d+)\\\"[^>]*data-uin=\\\"(\d+)\\\"",
+                        html,
+                        re.I,
+                    ):
+                        cid = cm.group(1)
+                        cuin = cm.group(2)
+                        comment_hits += 1
+                        out.append(
+                            FeedCommentRef(
+                                topic_id=topic_id,
+                                tid=tid,
+                                abstime=abstime,
+                                comment_id=cid,
+                                comment_uin=cuin,
+                            )
+                        )
+
+                continue
+
+            # Path B: JS-literal callback (common)
+            head = raw_text[:1200].replace("\n", " ").replace("\r", " ")
+            if "<!DOCTYPE html" in raw_text[:2000] or "<html" in raw_text[:2000]:
+                self.last_errors.append(f"page={pagenum} invalid_payload html_page head={head}")
                 if pagenum == 1:
                     return res.status_code, []
                 break
 
-            data = payload.get("data")
-            if not isinstance(data, dict):
-                self.last_errors.append(f"page={pagenum} missing_data")
+            arr_body = _extract_data_array_from_callback(raw_text)
+            if not arr_body:
+                self.last_errors.append(f"page={pagenum} js_literal data_array_not_found head={head}")
+                if pagenum == 1:
+                    return res.status_code, []
                 break
 
-            arr = data.get("data")
-            if not isinstance(arr, list):
-                # Keep a short head for debugging. This often changes by account/region.
-                head = raw_text[:1200].replace("\n", " ").replace("\r", " ")
-                self.last_errors.append(f"page={pagenum} data.data_not_list type={type(arr).__name__} head={head}")
-                break
-
-            feeds_items += len(arr)
-
-            for item in arr:
-                if not isinstance(item, dict):
-                    continue
-
-                html = str(item.get("html") or "")
-                if not html:
-                    continue
+            html_list = _iter_html_blobs_from_data_array(arr_body, limit=200)
+            html_blobs += len(html_list)
+            for html in html_list:
                 html_items += 1
 
                 m = re.search(
@@ -182,15 +318,16 @@ class QzoneProtectScanner:
 
                 tid = m.group(1)
                 topic_id = m.group(2)
+                topic_hits += 1
 
                 abstime = 0
-                try:
-                    if "abstime" in item:
-                        abstime = int(str(item.get("abstime") or 0))
-                except Exception:
-                    abstime = 0
+                m_ab = re.search(r"\babstime\s*:\s*'?([0-9]{6,})'?", arr_body[m.start() : m.start() + 2000])
+                if m_ab:
+                    try:
+                        abstime = int(m_ab.group(1))
+                    except Exception:
+                        abstime = 0
 
-                # comments root items
                 for cm in re.finditer(
                     r"comments-item[^>]*data-type=\\\"commentroot\\\"[^>]*data-tid=\\\"(\d+)\\\"[^>]*data-uin=\\\"(\d+)\\\"",
                     html,
@@ -212,8 +349,8 @@ class QzoneProtectScanner:
         try:
             self.last_diag = (
                 "[Qzone][protect_scan] "
-                f"pages={pages} count={count} feeds_items={feeds_items} html_items={html_items} "
-                f"comment_hits={comment_hits} out={len(out)} errors={len(self.last_errors)}"
+                f"pages={pages} count={count} feeds_items={feeds_items} html_items={html_items} html_blobs={html_blobs} "
+                f"topic_hits={topic_hits} comment_hits={comment_hits} out={len(out)} errors={len(self.last_errors)}"
             )
         except Exception:
             self.last_diag = ""
