@@ -157,8 +157,11 @@ def _extract_feed_items_from_js_callback(text: str) -> List[Dict[str, Any]]:
 
 
 class QzoneFeedFetcher:
-    def __init__(self, my_qq: str, cookie: str):
-        self.my_qq = str(my_qq).strip()
+    def __init__(self, host_uin: str, cookie: str, my_qq: str = ""):
+        # host_uin: whose space to fetch
+        # my_qq: your own QQ (used only when you want to filter self posts)
+        self.host_uin = str(host_uin).strip()
+        self.my_qq = str(my_qq or host_uin).strip()
         self.last_diag: str = ""
         self.last_sample_html_head: str = ""
 
@@ -202,7 +205,7 @@ class QzoneFeedFetcher:
         for _ in range(max_pages):
             url = (
                 "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds_html_act_all"
-                f"?uin={self.my_qq}&hostuin={self.my_qq}"
+                f"?uin={self.my_qq}&hostuin={self.host_uin}"
                 "&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
                 f"&begintime=undefined&icServerTime=&start={start}&count={count}"
                 "&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
@@ -323,7 +326,7 @@ class QzoneFeedFetcher:
                 if not tid or not host_uin or not topic_id:
                     continue
 
-                if host_uin != self.my_qq:
+                if host_uin != self.host_uin:
                     continue
 
                 self_posts += 1

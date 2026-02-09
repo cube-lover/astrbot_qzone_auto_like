@@ -1005,16 +1005,38 @@ class QzoneAutoLikePlugin(Star):
         - /说说 10     （展示最近 10 条，最多 50）
         """
 
-        text = (event.message_str or "").strip()
+        raw = (event.message_str or "").strip()
+        text = raw
         for prefix in ("/说说", "说说"):
             if text.startswith(prefix):
                 text = text[len(prefix) :].strip()
                 break
 
+        # optional: @12345 to fetch other's space
+        target_uin = ""
+        try:
+            for seg in (getattr(event, "message_obj", None) or []):
+                if getattr(seg, "type", None) in ("at", "mention"):
+                    u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
+                    if u.isdigit():
+                        target_uin = u
+                        break
+        except Exception:
+            pass
+
+        if not target_uin:
+            m_at = re.search(r"@\s*(\d{5,12})", text)
+            if m_at:
+                target_uin = m_at.group(1)
+
+        if target_uin:
+            text = re.sub(r"@\s*\d{5,12}", "", text).strip()
+
         n = 5
-        if text and text.isdigit() and len(text) <= 3:
+        m_n = re.search(r"\b(\d{1,3})\b", text)
+        if m_n:
             try:
-                n = int(text)
+                n = int(m_n.group(1))
             except Exception:
                 n = 5
         if n <= 0:
@@ -1027,7 +1049,8 @@ class QzoneAutoLikePlugin(Star):
             return
 
         try:
-            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            host_uin = target_uin or self.my_qq
+            fetcher = QzoneFeedFetcher(host_uin, self.cookie)
             page_size = 10
             pages = (n + page_size - 1) // page_size
             status, posts = await asyncio.to_thread(fetcher.fetch_mood_posts, page_size, pages)
@@ -1081,7 +1104,23 @@ class QzoneAutoLikePlugin(Star):
             return
 
         try:
-            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            host_uin = self.my_qq
+            # allow "说说表 10 @12345" / "说说表 @12345 10"
+            try:
+                for seg in (getattr(event, "message_obj", None) or []):
+                    if getattr(seg, "type", None) in ("at", "mention"):
+                        u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
+                        if u.isdigit():
+                            host_uin = u
+                            break
+            except Exception:
+                pass
+            if host_uin == self.my_qq:
+                m_at = re.search(r"@\s*(\d{5,12})", (event.message_str or ""))
+                if m_at:
+                    host_uin = m_at.group(1)
+
+            fetcher = QzoneFeedFetcher(host_uin, self.cookie)
             # page size 10, pages enough to cover n
             page_size = 10
             pages = (n + page_size - 1) // page_size
@@ -1131,11 +1170,34 @@ class QzoneAutoLikePlugin(Star):
 
         说明：这是“自动生成评论”的命令。要手动指定评论内容，用 /评论发。
         """
-        text = (event.message_str or "").strip()
+        # 支持：/评论 1 @xxx  或  /评论 @xxx 1  或  /评论 @xxx
+        raw = (event.message_str or "").strip()
+        text = raw
         for prefix in ("/评论", "评论"):
             if text.startswith(prefix):
                 text = text[len(prefix) :].strip()
                 break
+
+        # Extract mentioned QQ (if any) from message_obj / plain text.
+        target_uin = ""
+        try:
+            for seg in (getattr(event, "message_obj", None) or []):
+                if getattr(seg, "type", None) in ("at", "mention"):
+                    u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
+                    if u.isdigit():
+                        target_uin = u
+                        break
+        except Exception:
+            pass
+
+        if not target_uin:
+            m_at = re.search(r"@\s*(\d{5,12})", text)
+            if m_at:
+                target_uin = m_at.group(1)
+
+        if target_uin:
+            # Remove @... from arg text so later parsing works.
+            text = re.sub(r"@\s*\d{5,12}", "", text).strip()
 
         # If user provided manual comment text, comment the latest post directly.
         manual = (text or "").strip()
@@ -1200,13 +1262,16 @@ class QzoneAutoLikePlugin(Star):
             n = 1
 
         # /评论 N 语义：评论“第 N 新的说说”（只包含说说），不依赖本地缓存。
-        # 这里实时拉取“我主页(main)”的说说列表（feeds_html_act_all），不依赖本地缓存。
+        # - 未 @ 人：拉取“我主页(main)”
+        # - @ 了人：拉取对方主页(main)
         if not self.my_qq or not self.cookie:
             yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
             return
 
+        host_uin = target_uin or self.my_qq
+
         try:
-            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            fetcher = QzoneFeedFetcher(host_uin, self.cookie)
             status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
             if status != 200 or not posts_obj:
                 diag = getattr(fetcher, "last_diag", "")
