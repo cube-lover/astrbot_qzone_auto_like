@@ -1406,7 +1406,7 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"❌ 评论失败：status={status} code={result.code} msg={hint}")
 
     @filter.llm_tool(name="qz_comment")
-    async def llm_tool_qz_comment(self, count: str = "1", confirm: bool = False, event: AstrMessageEvent = None):
+    async def llm_tool_qz_comment(self, event: AstrMessageEvent = None, count: str = "1", confirm: bool = False):
         """根据最近发布的说说内容生成并发表评论（仅自己的空间）。
 
         Args:
@@ -1520,13 +1520,13 @@ class QzoneAutoLikePlugin(Star):
     @filter.llm_tool(name="qz_del_comment")
     async def llm_tool_qz_del_comment(
         self,
+        event: AstrMessageEvent = None,
         topic_id: str = "",
         comment_id: str = "",
         comment_uin: str = "",
         confirm: bool = False,
         latest: bool = False,
         idx: str = "1",
-        event: AstrMessageEvent = None,
     ):
         """删除QQ空间评论（删评）。
 
