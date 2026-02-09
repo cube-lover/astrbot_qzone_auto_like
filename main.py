@@ -1394,8 +1394,9 @@ class QzoneAutoLikePlugin(Star):
             if not tid:
                 raise RuntimeError("target tid empty")
 
+            topic_id = str(getattr(target, "topic_id", "") or "").strip()
             # Use fetched text if available; otherwise keep a generic hint.
-            posts = [{"tid": tid, "text": text_hint or "（根据该说说内容生成一句自然短评）", "ts": time.time()}]
+            posts = [{"tid": tid, "topic_id": topic_id, "text": text_hint or "（根据该说说内容生成一句自然短评）", "ts": time.time()}]
         except Exception as e:
             logger.info("[Qzone] fetch mood posts failed: %s", e)
 
