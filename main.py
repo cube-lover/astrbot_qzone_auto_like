@@ -1029,6 +1029,33 @@ class QzoneAutoLikePlugin(Star):
         ]
         yield event.plain_result("\n".join([s for s in lines if s and not s.endswith('=')]))
 
+    @filter.command("定时任务列表")
+    async def cron_list_local(self, event: AstrMessageEvent):
+        """List plugin-local scheduled tasks (AI post interval/daily + deletion policy)."""
+
+        ai_running = self._ai_task is not None and (not self._ai_task.done())
+        ai_state = "none"
+        if self._ai_task is not None:
+            ai_state = "done" if self._ai_task.done() else "running"
+
+        enabled = bool(self.config.get("ai_post_enabled", False))
+        interval_min = int(self.config.get("ai_post_interval_min", 0) or 0)
+        daily_time = str(self.config.get("ai_post_daily_time", "") or "").strip()
+        delete_after = int(self.config.get("ai_post_delete_after_min", 0) or 0)
+
+        mark = bool(self.config.get("ai_post_mark", True))
+        provider_id = str(self.config.get("ai_post_provider_id", "") or "").strip()
+
+        lines = [
+            "本插件定时任务（AI发说说）：",
+            f"ai_post_enabled={enabled} task={ai_state} running={ai_running}",
+            f"interval_min={interval_min} daily_time={daily_time or '-'} delete_after_min={delete_after} mark={mark}",
+            f"provider_id={provider_id or '-'}",
+            f"notify_post enabled={self.ai_post_notify_enabled} mode={self.ai_post_notify_mode} private={self.ai_post_notify_private_qq or '-'} group={self.ai_post_notify_group_id or '-'}",
+            f"notify_delete enabled={self.ai_post_delete_notify_enabled} mode={self.ai_post_delete_notify_mode} private={self.ai_post_delete_notify_private_qq or '-'} group={self.ai_post_delete_notify_group_id or '-'}",
+        ]
+        yield event.plain_result("\n".join(lines))
+
     @filter.command("护评扫一次")
     async def protect_scan_once(self, event: AstrMessageEvent):
         if not self.my_qq or not self.cookie:
