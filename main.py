@@ -1013,9 +1013,13 @@ class QzoneAutoLikePlugin(Star):
                 break
 
         # optional: @12345 to fetch other's space
+        # (align with /点赞: aiocqhttp message_obj is usually an object with .message chain)
         target_uin = ""
         try:
-            for seg in (getattr(event, "message_obj", None) or []):
+            chain = getattr(getattr(event, "message_obj", None), "message", None)
+            if chain is None:
+                chain = getattr(event, "message_obj", None) or []
+            for seg in chain:
                 if getattr(seg, "type", None) in ("at", "mention"):
                     u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
                     if u.isdigit():
@@ -1181,7 +1185,10 @@ class QzoneAutoLikePlugin(Star):
         # Extract mentioned QQ (if any) from message_obj / plain text.
         target_uin = ""
         try:
-            for seg in (getattr(event, "message_obj", None) or []):
+            chain = getattr(getattr(event, "message_obj", None), "message", None)
+            if chain is None:
+                chain = getattr(event, "message_obj", None) or []
+            for seg in chain:
                 if getattr(seg, "type", None) in ("at", "mention"):
                     u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
                     if u.isdigit():
