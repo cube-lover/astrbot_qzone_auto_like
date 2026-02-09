@@ -1018,7 +1018,8 @@ class QzoneAutoLikePlugin(Star):
                 break
 
         # optional: @12345 to fetch other's space
-        # EXACTLY align with /点赞 logic for aiocqhttp:
+        # 1) normal message chain: align with /点赞
+        # 2) fallback to raw_message (some LLM/routers may rebuild message_obj.message)
         target_uin = ""
         try:
             chain = getattr(event.message_obj, "message", [])
@@ -1030,6 +1031,21 @@ class QzoneAutoLikePlugin(Star):
                         break
         except Exception:
             pass
+
+        if not target_uin:
+            try:
+                raw_msg = getattr(event.message_obj, "raw_message", None)
+                if isinstance(raw_msg, dict):
+                    raw_chain = raw_msg.get("message") or []
+                    for seg in raw_chain:
+                        if isinstance(seg, dict) and seg.get("type") == "at":
+                            data = seg.get("data") or {}
+                            qq = data.get("qq")
+                            if qq:
+                                target_uin = str(qq).strip()
+                                break
+            except Exception:
+                pass
 
         if not target_uin:
             m_at = re.search(r"@\s*(\d{5,12})", text)
@@ -1139,6 +1155,24 @@ class QzoneAutoLikePlugin(Star):
                                 break
             except Exception:
                 pass
+
+            if host_uin == self.my_qq:
+                try:
+                    raw_msg = getattr(event.message_obj, "raw_message", None)
+                    if isinstance(raw_msg, dict):
+                        raw_chain = raw_msg.get("message") or []
+                        for seg in raw_chain:
+                            if isinstance(seg, dict) and seg.get("type") == "at":
+                                data = seg.get("data") or {}
+                                qq = data.get("qq")
+                                if qq:
+                                    u = str(qq).strip()
+                                    if u.isdigit():
+                                        host_uin = u
+                                        break
+                except Exception:
+                    pass
+
             if host_uin == self.my_qq:
                 m_at = re.search(r"@\s*(\d{5,12})", (event.message_str or ""))
                 if m_at:
@@ -1212,7 +1246,8 @@ class QzoneAutoLikePlugin(Star):
                 break
 
         # Extract mentioned QQ (if any) from message_obj / plain text.
-        # EXACTLY align with /点赞 logic for aiocqhttp:
+        # 1) normal message chain: align with /点赞
+        # 2) fallback to raw_message (some LLM/routers may rebuild message_obj.message)
         target_uin = ""
         try:
             chain = getattr(event.message_obj, "message", [])
@@ -1224,6 +1259,21 @@ class QzoneAutoLikePlugin(Star):
                         break
         except Exception:
             pass
+
+        if not target_uin:
+            try:
+                raw_msg = getattr(event.message_obj, "raw_message", None)
+                if isinstance(raw_msg, dict):
+                    raw_chain = raw_msg.get("message") or []
+                    for seg in raw_chain:
+                        if isinstance(seg, dict) and seg.get("type") == "at":
+                            data = seg.get("data") or {}
+                            qq = data.get("qq")
+                            if qq:
+                                target_uin = str(qq).strip()
+                                break
+            except Exception:
+                pass
 
         if not target_uin:
             m_at = re.search(r"@\s*(\d{5,12})", text)
