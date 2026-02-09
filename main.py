@@ -1007,6 +1007,11 @@ class QzoneAutoLikePlugin(Star):
 
         raw = (event.message_str or "").strip()
         text = raw
+
+        # Make comma/Chinese-comma triggered routing compatible (",说说" / "，说说")
+        if text.startswith(",") or text.startswith("，"):
+            text = text[1:].lstrip()
+
         for prefix in ("/说说", "说说"):
             if text.startswith(prefix):
                 text = text[len(prefix) :].strip()
@@ -1094,6 +1099,11 @@ class QzoneAutoLikePlugin(Star):
     @filter.command("说说表")
     async def mood_table(self, event: AstrMessageEvent):
         text = (event.message_str or "").strip()
+
+        # Make comma/Chinese-comma triggered routing compatible (",说说表" / "，说说表")
+        if text.startswith(",") or text.startswith("，"):
+            text = text[1:].lstrip()
+
         for prefix in ("/说说表", "说说表"):
             if text.startswith(prefix):
                 text = text[len(prefix) :].strip()
@@ -1191,6 +1201,11 @@ class QzoneAutoLikePlugin(Star):
         # 支持：/评论 1 @xxx  或  /评论 @xxx 1  或  /评论 @xxx
         raw = (event.message_str or "").strip()
         text = raw
+
+        # Make comma/Chinese-comma triggered routing compatible (",评论" / "，评论")
+        if text.startswith(",") or text.startswith("，"):
+            text = text[1:].lstrip()
+
         for prefix in ("/评论", "评论"):
             if text.startswith(prefix):
                 text = text[len(prefix) :].strip()
