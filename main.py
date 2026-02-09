@@ -1047,9 +1047,10 @@ class QzoneAutoLikePlugin(Star):
                 content = str(getattr(p, "text", "") or "").strip()
                 if not content:
                     content = str(getattr(p, "html", "") or "").strip()
-                if len(content) > 120:
-                    content = content[:120].rstrip() + "..."
-                lines.append(f"{i}) {tstr} tid={tid}\n{content}")
+                # keep it extremely short for quick scanning
+                if len(content) > 6:
+                    content = content[:6] + "..."
+                lines.append(f"{i}) {tstr} tid={tid} | {content}")
                 i += 1
 
             yield event.plain_result("\n\n".join(lines))
