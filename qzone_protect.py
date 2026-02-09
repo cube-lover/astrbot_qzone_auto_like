@@ -77,6 +77,8 @@ class FeedCommentRef:
 class QzoneProtectScanner:
     def __init__(self, my_qq: str, cookie: str):
         self.my_qq = str(my_qq).strip()
+        self.last_diag: str = ""
+        self.last_errors: list[str] = []
 
         cookie = (cookie or "").strip()
         if cookie.lower().startswith("cookie:"):
@@ -100,6 +102,11 @@ class QzoneProtectScanner:
 
     def scan_recent_comments(self, pages: int = 2, count: int = 10) -> Tuple[int, List[FeedCommentRef]]:
         out: List[FeedCommentRef] = []
+        self.last_diag = ""
+        self.last_errors = []
+        feeds_items = 0
+        html_items = 0
+        comment_hits = 0
         pages = int(pages) if pages else 1
         if pages <= 0:
             pages = 1
@@ -131,17 +138,24 @@ class QzoneProtectScanner:
 
             payload = _try_extract_json_from_callback(res.text or "")
             if not isinstance(payload, dict):
+                self.last_errors.append(f"page={pagenum} invalid_payload")
                 if pagenum == 1:
                     return res.status_code, []
                 break
 
             data = payload.get("data")
             if not isinstance(data, dict):
+                self.last_errors.append(f"page={pagenum} missing_data")
                 break
 
             arr = data.get("data")
             if not isinstance(arr, list):
+                # Keep a short head for debugging. This often changes by account/region.
+                head = (res.text or "")[:240].replace("\n", " ").replace("\r", " ")
+                self.last_errors.append(f"page={pagenum} data.data_not_list type={type(arr).__name__} head={head}")
                 break
+
+            feeds_items += len(arr)
 
             for item in arr:
                 if not isinstance(item, dict):
@@ -150,6 +164,7 @@ class QzoneProtectScanner:
                 html = str(item.get("html") or "")
                 if not html:
                     continue
+                html_items += 1
 
                 m = re.search(
                     r"name=\\\"feed_data\\\"[^>]*\bdata-tid=\\\"([^\\\"]+)\\\"[^>]*\bdata-topicid=\\\"([^\\\"]+)\\\"",
@@ -176,6 +191,7 @@ class QzoneProtectScanner:
                 ):
                     cid = cm.group(1)
                     cuin = cm.group(2)
+                    comment_hits += 1
                     out.append(
                         FeedCommentRef(
                             topic_id=topic_id,
@@ -185,6 +201,15 @@ class QzoneProtectScanner:
                             comment_uin=cuin,
                         )
                     )
+
+        try:
+            self.last_diag = (
+                "[Qzone][protect_scan] "
+                f"pages={pages} count={count} feeds_items={feeds_items} html_items={html_items} "
+                f"comment_hits={comment_hits} out={len(out)} errors={len(self.last_errors)}"
+            )
+        except Exception:
+            self.last_diag = ""
 
         return 200, out
 

@@ -758,6 +758,15 @@ class QzoneAutoLikePlugin(Star):
         while not self._protect_stop.is_set():
             try:
                 status, refs = await asyncio.to_thread(scanner.scan_recent_comments, self.protect_pages, 10)
+                diag = getattr(scanner, "last_diag", "")
+                errs = getattr(scanner, "last_errors", [])
+                if diag:
+                    logger.info("%s", diag)
+                if errs and self.protect_notify_mode in ("error", "all"):
+                    # only print a few to avoid log spam
+                    for s in list(errs)[:3]:
+                        logger.warning("[Qzone][protect_scan_err] %s", s)
+
                 if status != 200:
                     if self.protect_notify_mode in ("error", "all"):
                         logger.warning("[Qzone] protect scan failed status=%s", status)
