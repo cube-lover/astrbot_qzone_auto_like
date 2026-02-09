@@ -1045,8 +1045,6 @@ class QzoneAutoLikePlugin(Star):
                 ts = int(getattr(p, "abstime", 0) or 0)
                 tstr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "-"
                 content = str(getattr(p, "text", "") or "").strip()
-                if not content:
-                    content = str(getattr(p, "html", "") or "").strip()
                 # keep it extremely short for quick scanning
                 if len(content) > 6:
                     content = content[:6] + "..."
@@ -1601,8 +1599,11 @@ class QzoneAutoLikePlugin(Star):
                 yield event.plain_result("❌ 获取到的说说缺少 tid")
                 return
 
-            # We don't always have full text from feed fetch; use a generic prompt.
-            posts = [{"tid": tid, "text": "（根据该说说内容生成一句自然短评）", "ts": time.time()}]
+            # Use extracted post text as LLM prompt, so the comment is relevant.
+            text_hint = str(getattr(target, "text", "") or "").strip()
+            if not text_hint:
+                text_hint = "（未抓到说说正文；请生成一句通用短评）"
+            posts = [{"tid": tid, "text": text_hint, "ts": time.time()}]
         except Exception as e:
             yield event.plain_result(f"❌ 获取主页说说异常：{e}")
             return

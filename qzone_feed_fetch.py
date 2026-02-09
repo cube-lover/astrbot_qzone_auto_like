@@ -18,6 +18,7 @@ class MoodPost:
     tid: str
     topic_id: str
     abstime: int
+    text: str = ""
 
 
 def _get_gtk(skey: str) -> int:
@@ -351,7 +352,34 @@ class QzoneFeedFetcher:
                     except Exception:
                         abstime = 0
 
-                posts.append(MoodPost(host_uin=host_uin, tid=tid, topic_id=topic_id, abstime=abstime))
+                # Extract visible text from feed item HTML.
+                m_info = re.search(r"<div[^>]*class=\\\"f-info\\\"[^>]*>(.*?)</div>", html, re.S)
+                if not m_info:
+                    m_info = re.search(r"<div[^>]*class=\"f-info\"[^>]*>(.*?)</div>", html, re.S)
+                raw_info = m_info.group(1) if m_info else ""
+                # Strip tags and normalize whitespace.
+                info_txt = re.sub(r"<[^>]+>", "", raw_info)
+                info_txt = (
+                    info_txt.replace("\\x3C", "<")
+                    .replace("\\x3E", ">")
+                    .replace("&nbsp;", " ")
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&#39;", "'")
+                    .replace("&quot;", "\"")
+                )
+                info_txt = re.sub(r"\s+", " ", info_txt).strip()
+
+                posts.append(
+                    MoodPost(
+                        host_uin=host_uin,
+                        tid=tid,
+                        topic_id=topic_id,
+                        abstime=abstime,
+                        text=info_txt,
+                    )
+                )
 
             start += count
 
