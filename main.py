@@ -1287,8 +1287,9 @@ class QzoneAutoLikePlugin(Star):
                 target_uin = m_cq.group(1)
 
         if target_uin:
-            # Remove @... from arg text so later parsing works.
+            # Remove @... / [At:...] from arg text so later parsing works.
             text = re.sub(r"@\s*\d{5,12}", "", text).strip()
+            text = re.sub(r"\[At:\d{5,12}\]", "", text).strip()
 
         # If user provided manual comment text, comment the latest post directly.
         manual = (text or "").strip()
