@@ -282,6 +282,19 @@ class QzoneAutoLikePlugin(Star):
         self._protect_stop = asyncio.Event()
         self._protect_seen: dict[str, float] = {}
 
+        # Some AstrBot builds don't reliably call on_astrbot_loaded for plugins.
+        # To make protect actually run, schedule a best-effort autostart here.
+        self._protect_last_scan = ""
+        self._protect_last_delete = ""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon(asyncio.create_task, self._maybe_start_protect_task())
+        except Exception:
+            try:
+                asyncio.get_event_loop().call_soon(asyncio.create_task, self._maybe_start_protect_task())
+            except Exception:
+                pass
+
         # 去掉缓存/去重机制：不加载历史点赞记录
 
         logger.info(
@@ -444,6 +457,18 @@ class QzoneAutoLikePlugin(Star):
         self._ai_stop.clear()
         self._ai_task = asyncio.create_task(self._ai_poster_worker())
         logger.info("[Qzone] AI post：任务已启动")
+
+    async def _maybe_start_protect_task(self) -> None:
+        if not self.protect_enabled:
+            return
+        if not self.my_qq or not self.cookie:
+            return
+        if self._protect_task is not None and (not self._protect_task.done()):
+            return
+
+        self._protect_stop.clear()
+        self._protect_task = asyncio.create_task(self._protect_worker())
+        logger.info("[Qzone] protect worker task created (fallback)")
 
     async def _ai_poster_worker(self) -> None:
         if not self.my_qq or not self.cookie:
