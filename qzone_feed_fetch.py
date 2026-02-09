@@ -339,6 +339,7 @@ class QzoneFeedFetcher:
                     continue
 
                 abstime = 0
+                feedstime = ""
 
                 # Prefer data-abstime from feed_data tag; it's present in the embedded HTML and avoids JS-literal parsing quirks.
                 m_ab = re.search(r"\bdata-abstime=\\\"(\d+)\\\"", tag)
