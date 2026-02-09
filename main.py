@@ -1203,12 +1203,15 @@ class QzoneAutoLikePlugin(Star):
                 fs = str(getattr(p, "feedstime", "") or "").strip()
                 if fs:
                     return fs
+
                 ts = int(getattr(p, "abstime", 0) or 0)
                 if ts:
                     try:
+                        # NOTE: this depends on server timezone; only used when feedstime is unavailable.
                         return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
                     except Exception:
                         return str(ts)
+
                 return "-"
 
             lines = [f"共 {len(posts)} 条（最新在前）"]

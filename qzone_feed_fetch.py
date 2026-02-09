@@ -370,7 +370,17 @@ class QzoneFeedFetcher:
 
                 if not feedstime:
                     # fallback: extract from HTML header span (e.g. 2025年12月11日 01:39)
-                    m_fs = re.search(r">\s*(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2})\s*<", html)
+                    m_fs = re.search(
+                        r"<span[^>]*\bclass=\\\"[^\\\"]*\bstate\b[^\\\"]*\\\"[^>]*>\s*(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2})\s*</span>",
+                        html,
+                        re.S,
+                    )
+                    if not m_fs:
+                        m_fs = re.search(
+                            r"<span[^>]*\bclass=\"[^\"]*\bstate\b[^\"]*\"[^>]*>\s*(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2})\s*</span>",
+                            html,
+                            re.S,
+                        )
                     if m_fs:
                         feedstime = m_fs.group(1).strip()
 
