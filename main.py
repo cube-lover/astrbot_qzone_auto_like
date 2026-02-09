@@ -1050,7 +1050,7 @@ class QzoneAutoLikePlugin(Star):
 
         try:
             host_uin = target_uin or self.my_qq
-            fetcher = QzoneFeedFetcher(host_uin, self.cookie)
+            fetcher = QzoneFeedFetcher(host_uin, self.cookie, my_qq=self.my_qq)
             page_size = 10
             pages = (n + page_size - 1) // page_size
             status, posts = await asyncio.to_thread(fetcher.fetch_mood_posts, page_size, pages)
@@ -1120,7 +1120,7 @@ class QzoneAutoLikePlugin(Star):
                 if m_at:
                     host_uin = m_at.group(1)
 
-            fetcher = QzoneFeedFetcher(host_uin, self.cookie)
+            fetcher = QzoneFeedFetcher(host_uin, self.cookie, my_qq=self.my_qq)
             # page size 10, pages enough to cover n
             page_size = 10
             pages = (n + page_size - 1) // page_size
@@ -1271,7 +1271,7 @@ class QzoneAutoLikePlugin(Star):
         host_uin = target_uin or self.my_qq
 
         try:
-            fetcher = QzoneFeedFetcher(host_uin, self.cookie)
+            fetcher = QzoneFeedFetcher(host_uin, self.cookie, my_qq=self.my_qq)
             status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
             if status != 200 or not posts_obj:
                 diag = getattr(fetcher, "last_diag", "")
@@ -1643,7 +1643,7 @@ class QzoneAutoLikePlugin(Star):
                 logger.error("[Qzone] qz_comment missing event (tool runner issue)")
                 return
 
-            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie, my_qq=self.my_qq)
             status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
             if status != 200 or not posts_obj:
                 diag = getattr(fetcher, "last_diag", "")

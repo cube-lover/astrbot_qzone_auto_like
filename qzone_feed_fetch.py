@@ -161,7 +161,7 @@ class QzoneFeedFetcher:
         # host_uin: whose space to fetch
         # my_qq: your own QQ (used only when you want to filter self posts)
         self.host_uin = str(host_uin).strip()
-        self.my_qq = str(my_qq or host_uin).strip()
+        self.my_qq = str(my_qq or "").strip()
         self.last_diag: str = ""
         self.last_sample_html_head: str = ""
 
@@ -174,6 +174,9 @@ class QzoneFeedFetcher:
         if not skey_for_gtk:
             raise ValueError("cookie 缺少 p_skey/skey/media_p_skey（无法计算 g_tk）")
         self.g_tk = _get_gtk(skey_for_gtk)
+
+        if not self.my_qq:
+            raise ValueError("my_qq 为空（需要用于 uin=... 参数）")
 
         self.headers = {
             "user-agent": (
@@ -205,7 +208,7 @@ class QzoneFeedFetcher:
         for _ in range(max_pages):
             url = (
                 "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds_html_act_all"
-                f"?uin={self.my_qq}&hostuin={self.host_uin}"
+                f"?uin={self.my_qq or self.host_uin}&hostuin={self.host_uin}"
                 "&scope=0&filter=all&flag=1&refresh=0&firstGetGroup=0&mixnocache=0&scene=0"
                 f"&begintime=undefined&icServerTime=&start={start}&count={count}"
                 "&sidomain=qzonestyle.gtimg.cn&useutf8=1&outputhtmlfeed=1&refer=2"
