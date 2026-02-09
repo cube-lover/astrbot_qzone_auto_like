@@ -572,6 +572,10 @@ class QzoneAutoLikePlugin(Star):
 
         if prompt:
             self.config["ai_post_prompt"] = prompt
+            # Also set fixed-text by default; user said they don't want LLM.
+            if not str(self.config.get("ai_post_fixed_text", "") or "").strip():
+                self.config["ai_post_fixed_text"] = prompt
+            self.config["ai_post_mode"] = str(self.config.get("ai_post_mode", "fixed") or "fixed")
             changed.append(f"提示词={prompt}")
 
         if not changed:
@@ -580,7 +584,8 @@ class QzoneAutoLikePlugin(Star):
         # enable
         self.config["ai_post_enabled"] = True
 
-        msg = "✅ 已按自然语言设置定时任务：" + " | ".join(changed) + "\n已自动开启：，定时任务 列表 可查看状态"
+        mode = str(self.config.get("ai_post_mode", "fixed") or "fixed")
+        msg = "✅ 已按自然语言设置定时任务：" + " | ".join(changed) + f"\n模式={mode}（fixed=固定文本，不调用LLM）\n已自动开启：，定时任务 列表 可查看状态"
         return True, msg
 
     async def _ai_poster_worker(self) -> None:
@@ -649,6 +654,68 @@ class QzoneAutoLikePlugin(Star):
                 logger.warning(f"[Qzone] AI notify failed kind={kind}: {e}")
 
         async def _gen_and_post(prompt: str) -> None:
+            mode = str(self.config.get("ai_post_mode", "fixed") or "fixed").strip() or "fixed"
+            if mode == "fixed":
+                content = str(self.config.get("ai_post_fixed_text", "") or "").strip() or str(prompt or "").strip()
+                if not content:
+                    logger.error("[Qzone] AI post：fixed 模式未配置文本")
+                    return
+
+                if len(content) > 120:
+                    content = content[:120].rstrip()
+
+                status, result = await asyncio.to_thread(poster.publish_text, content)
+                try:
+                    self.config["ai_post_last_run_ts"] = time.time()
+                    if hasattr(self.config, "save_config"):
+                        self.config.save_config()
+                except Exception:
+                    pass
+
+                logger.info(
+                    "[Qzone] fixed post 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
+                    status,
+                    result.ok,
+                    result.code,
+                    result.message,
+                    getattr(result, "tid", ""),
+                )
+
+                ok = bool(status == 200 and result.ok)
+                if ok and self.ai_post_notify_mode == "all":
+                    await _ai_notify("post", f"定时发说说成功 tid={getattr(result, 'tid', '')}")
+                if (not ok) and self.ai_post_notify_mode in ("error", "all"):
+                    await _ai_notify(
+                        "post",
+                        f"定时发说说失败 status={status} code={getattr(result, 'code', '')} msg={getattr(result, 'message', '')}",
+                    )
+
+                delete_after = int(self.config.get("ai_post_delete_after_min", 0) or 0)
+                tid = getattr(result, "tid", "")
+                if status == 200 and result.ok and delete_after > 0 and tid:
+                    async def _del_later() -> None:
+                        await asyncio.sleep(delete_after * 60)
+                        ds, dr = await asyncio.to_thread(poster.delete_by_tid, tid)
+                        logger.info(
+                            "[Qzone] fixed delete 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
+                            ds,
+                            dr.ok,
+                            dr.code,
+                            dr.message,
+                            tid,
+                        )
+
+                        ok2 = bool(ds == 200 and dr.ok)
+                        if ok2 and self.ai_post_delete_notify_mode == "all":
+                            await _ai_notify("delete", f"定时删说说成功 tid={tid}")
+                        if (not ok2) and self.ai_post_delete_notify_mode in ("error", "all"):
+                            await _ai_notify(
+                                "delete",
+                                f"定时删说说失败 status={ds} code={getattr(dr, 'code', '')} msg={getattr(dr, 'message', '')} tid={tid}",
+                            )
+                    asyncio.create_task(_del_later())
+                return
+
             provider_id = str(self.config.get("ai_post_provider_id", "") or "").strip()
             provider = None
             if provider_id:
@@ -1194,6 +1261,9 @@ class QzoneAutoLikePlugin(Star):
         daily_time = str(self.config.get("ai_post_daily_time", "") or "").strip()
         delete_after = int(self.config.get("ai_post_delete_after_min", 0) or 0)
 
+        mode = str(self.config.get("ai_post_mode", "fixed") or "fixed").strip() or "fixed"
+        fixed_text = str(self.config.get("ai_post_fixed_text", "") or "").strip()
+
         mark = bool(self.config.get("ai_post_mark", True))
         provider_id = str(self.config.get("ai_post_provider_id", "") or "").strip()
 
@@ -1229,7 +1299,8 @@ class QzoneAutoLikePlugin(Star):
             "本插件定时任务（AI发说说）：",
             f"开关: {enabled} | 任务: {ai_state} | 运行中: {ai_running}",
             f"下次触发: {next_run}",
-            f"间隔(分钟): {interval_min} | 每日: {daily_time or '-'} | 删后(分钟): {delete_after} | AI标记: {mark}",
+            f"模式: {mode} | 间隔(分钟): {interval_min} | 每日: {daily_time or '-'} | 删后(分钟): {delete_after} | AI标记: {mark}",
+            f"固定文本: {_short(fixed_text) or '-'}",
             f"提示词(interval): {_short(prompt) or '-'}",
             f"提示词(daily): {_short(daily_prompt) or '-'}",
             f"模型(provider_id): {provider_id or '-'}",

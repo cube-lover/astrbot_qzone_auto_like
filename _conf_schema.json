@@ -96,8 +96,18 @@
   },
   "ai_post_enabled": {
     "type": "bool",
-    "description": "启用AI定时发说说任务（需要已配置文本生成提供商）",
+    "description": "启用定时发说说任务（AI/固定文本二选一）",
     "default": false
+  },
+  "ai_post_mode": {
+    "type": "string",
+    "description": "定时发说说模式：ai=使用LLM生成；fixed=固定文本（不调用LLM）",
+    "default": "fixed"
+  },
+  "ai_post_fixed_text": {
+    "type": "text",
+    "description": "fixed模式下每次发布的固定文本",
+    "default": ""
   },
   "ai_post_mark": {
     "type": "bool",
