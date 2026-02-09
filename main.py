@@ -996,6 +996,68 @@ class QzoneAutoLikePlugin(Star):
             logger.error(traceback.format_exc())
             yield event.plain_result(f"❌ 异常：{e}")
 
+    @filter.command("说说")
+    async def moods(self, event: AstrMessageEvent):
+        """列出最近的说说内容（用于快速挑选要评论/删除的条目）。
+
+        用法：
+        - /说说        （默认 5 条）
+        - /说说 10     （展示最近 10 条，最多 50）
+        """
+
+        text = (event.message_str or "").strip()
+        for prefix in ("/说说", "说说"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        n = 5
+        if text and text.isdigit() and len(text) <= 3:
+            try:
+                n = int(text)
+            except Exception:
+                n = 5
+        if n <= 0:
+            n = 5
+        if n > 50:
+            n = 50
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
+        try:
+            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
+            page_size = 10
+            pages = (n + page_size - 1) // page_size
+            status, posts = await asyncio.to_thread(fetcher.fetch_mood_posts, page_size, pages)
+            if status != 200 or not posts:
+                diag = getattr(fetcher, "last_diag", "")
+                extra = f" | {diag}" if diag else ""
+                yield event.plain_result(f"获取失败：status={status} posts={len(posts) if posts else 0}{extra}")
+                return
+
+            posts = posts[:n]
+            lines = [f"最近 {len(posts)} 条说说（最新在前）："]
+            i = 1
+            for p in posts:
+                tid = str(getattr(p, "tid", "") or "").strip()
+                ts = int(getattr(p, "abstime", 0) or 0)
+                tstr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "-"
+                content = str(getattr(p, "text", "") or "").strip()
+                if not content:
+                    content = str(getattr(p, "html", "") or "").strip()
+                if len(content) > 120:
+                    content = content[:120].rstrip() + "..."
+                lines.append(f"{i}) {tstr} tid={tid}\n{content}")
+                i += 1
+
+            yield event.plain_result("\n\n".join(lines))
+        except Exception as e:
+            logger.error(f"[Qzone] 说说列表异常: {e}")
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"❌ 异常：{e}")
+
     @filter.command("说说表")
     async def mood_table(self, event: AstrMessageEvent):
         text = (event.message_str or "").strip()
