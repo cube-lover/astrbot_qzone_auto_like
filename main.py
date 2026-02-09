@@ -1488,15 +1488,24 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(f"❌ 评论失败：status={status} code={result.code} msg={hint}")
 
     @filter.llm_tool(name="qz_comment")
-    async def llm_tool_qz_comment(self, event: AstrMessageEvent = None, count: str = "1", confirm: bool = False):
-        """根据最近发布的说说内容生成并发表评论（仅自己的空间）。
+    async def llm_tool_qz_comment(
+        self,
+        event: AstrMessageEvent = None,
+        count: str = "1",
+        idx: str = "",
+        confirm: bool = False,
+    ):
+        """根据主页说说生成并发表评论（仅自己的空间）。
 
         Args:
-            count(string): 评论最近 N 条（默认1；建议 <= 10）
-            confirm(boolean): 是否确认直接发表评论；false 时只返回草稿
+            count(string): 兼容参数：第 N 新的说说（默认 1）。
+            idx(string): 推荐参数：第 N 新的说说（1=最新，2=第二新...）；优先于 count。
+            confirm(boolean): 是否确认直接发表评论；false 时只返回草稿。
         """
+        # Use idx (preferred) or count (compat) as "Nth latest post".
+        raw_n = str(idx or "").strip() or str(count or "1").strip()
         try:
-            n = int(str(count or "1").strip())
+            n = int(raw_n)
         except Exception:
             n = 1
         if n <= 0:
@@ -1505,7 +1514,8 @@ class QzoneAutoLikePlugin(Star):
         # Align tool behavior with /评论 N: always fetch from main page, not local cache.
         try:
             if event is None:
-                raise RuntimeError("qz_comment missing event")
+                logger.error("[Qzone] qz_comment missing event (tool runner issue)")
+                return
 
             fetcher = QzoneFeedFetcher(self.my_qq, self.cookie)
             status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
@@ -1630,6 +1640,7 @@ class QzoneAutoLikePlugin(Star):
         confirm: bool = False,
         latest: bool = False,
         idx: str = "1",
+        count: int = 0,
     ):
         """删除QQ空间评论（删评）。
 
@@ -1644,13 +1655,52 @@ class QzoneAutoLikePlugin(Star):
             confirm(boolean): 是否确认直接删除；false 时只返回待删除信息
             latest(boolean): 是否删除最近一次成功评论（基于内存记录，重启清空）
             idx(string): 删除倒数第 idx 条记录（1=最近一次，2=上一次...）
+            count(int): 批量删除最近 count 条（优先于 latest/idx；建议 <= 20）
         """
 
         if event is None:
-            raise RuntimeError("qz_del_comment missing event")
+            logger.error("[Qzone] qz_del_comment missing event (tool runner issue)")
+            return
 
         t = (topic_id or "").strip()
         cid = (comment_id or "").strip()
+
+        # Batch delete (highest priority)
+        try:
+            c = int(count or 0)
+        except Exception:
+            c = 0
+        if c > 0:
+            if not self._recent_comment_refs:
+                yield event.plain_result("找不到评论记录（重启后会清空）。请先评论一次再批量删评。")
+                return
+            max_n = min(c, len(self._recent_comment_refs), 20)
+            if not confirm:
+                yield event.plain_result(f"待批量删评（未执行）：count={max_n}")
+                return
+
+            deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
+            ok_cnt = 0
+            fail_cnt = 0
+            for _ in range(max_n):
+                ref = self._recent_comment_refs[-1]
+                rt = str(ref.get("topicId") or "").strip()
+                rcid = str(ref.get("commentId") or "").strip()
+                if not rt or not rcid:
+                    self._recent_comment_refs.pop()
+                    continue
+                status, result = await asyncio.to_thread(deleter.delete_comment, rt, rcid, comment_uin)
+                if status == 200 and result.ok:
+                    ok_cnt += 1
+                    self._recent_comment_refs.pop()
+                else:
+                    fail_cnt += 1
+                    # Avoid infinite loop on same bad ref
+                    self._recent_comment_refs.pop()
+                await asyncio.sleep(0.4 + random.random() * 0.8)
+
+            yield event.plain_result(f"删评完成：成功={ok_cnt} 失败={fail_cnt}")
+            return
 
         # Resolve ids from memory when requested.
         # - latest=true: delete the most recent successful comment recorded by this plugin.
