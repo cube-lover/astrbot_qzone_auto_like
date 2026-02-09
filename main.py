@@ -1591,13 +1591,34 @@ class QzoneAutoLikePlugin(Star):
 
         commenter = QzoneCommenter(self.my_qq, self.cookie)
         ok_cnt = 0
+        recorded_cnt = 0
         for tid, cmt in drafts:
             status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt)
             if status == 200 and result.ok:
                 ok_cnt += 1
+                try:
+                    cid = str(getattr(result, "comment_id", "") or "").strip()
+                    topic = str(getattr(result, "topic_id", "") or "").strip()
+                    if cid and topic:
+                        ref = {"topicId": topic, "commentId": cid, "ts": time.time()}
+                        self._recent_comment_refs = [
+                            r
+                            for r in self._recent_comment_refs
+                            if not (
+                                str(r.get("topicId") or "") == topic
+                                and str(r.get("commentId") or "") == cid
+                            )
+                        ]
+                        self._recent_comment_refs.append(ref)
+                        recorded_cnt += 1
+                        logger.info("[Qzone] comment_recorded topicId=%s commentId=%s", topic, cid)
+                        if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
+                            self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
+                except Exception:
+                    pass
             await asyncio.sleep(delay_min + random.random() * max(0.0, delay_max - delay_min))
 
-        yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(drafts)}")
+        yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(drafts)}，记录={recorded_cnt}")
 
     @filter.llm_tool(name="qz_del_comment")
     async def llm_tool_qz_del_comment(
