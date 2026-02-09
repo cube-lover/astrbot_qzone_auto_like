@@ -773,30 +773,39 @@ class QzoneAutoLikePlugin(Star):
                 else:
                     refs = scanner.filter_within_window(refs, self.protect_window_minutes)
 
-                    # Best-effort: try delete comments; usually only works for own comments.
                     deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
 
+                    # Delete only others' comments; never delete own comments.
                     for r in refs:
+                        if str(r.comment_uin) == str(self.my_qq):
+                            continue
+
                         k = f"{r.topic_id}:{r.comment_id}"
-                        if k in self._protect_seen:
+                        ts = self._protect_seen.get(k)
+                        if ts and (time.time() - ts) < max(60.0, float(self.protect_poll_interval) * 2.0):
                             continue
                         # mark first to avoid spamming on repeated failures
                         self._protect_seen[k] = time.time()
 
-                        # Only attempt delete. Result must be code==0.
                         ds, dr = await asyncio.to_thread(deleter.delete_comment, r.topic_id, r.comment_id, r.comment_uin)
                         if ds == 200 and dr.ok:
                             if self.protect_notify_mode == "all":
-                                logger.info("[Qzone] protect delete ok topicId=%s commentId=%s", r.topic_id, r.comment_id)
+                                logger.info(
+                                    "[Qzone] protect delete ok topicId=%s commentId=%s commentUin=%s",
+                                    r.topic_id,
+                                    r.comment_id,
+                                    r.comment_uin,
+                                )
                         else:
                             if self.protect_notify_mode in ("error", "all"):
                                 logger.warning(
-                                    "[Qzone] protect delete failed status=%s code=%s msg=%s topicId=%s commentId=%s",
+                                    "[Qzone] protect delete failed status=%s code=%s msg=%s topicId=%s commentId=%s commentUin=%s",
                                     ds,
                                     dr.code,
                                     dr.message,
                                     r.topic_id,
                                     r.comment_id,
+                                    r.comment_uin,
                                 )
 
                 await asyncio.wait_for(self._protect_stop.wait(), timeout=self.protect_poll_interval)
