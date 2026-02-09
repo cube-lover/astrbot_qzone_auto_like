@@ -1,0 +1,9 @@
+Future-task prompt (manual):
+
+每次触发请严格按步骤调用工具：
+1) 调用工具 qz_post，参数：text="<先根据我的想法生成一段固定文本，直接给出最终文本>", confirm=true。
+2) 从工具返回中提取 tid=...。
+3) 调用工具 sleep_seconds，参数：sec=300。
+4) 调用工具 qz_delete，参数：tid="<上一步提取的tid>", confirm=true。
+
+注意：必须按 tid 精确删除，禁止使用 latest=true，避免删错。

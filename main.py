@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Set, Tuple
 
 from .qzone_post import QzonePoster
+from .qzone_sleep import sleep_seconds
 from .qzone_comment import QzoneCommenter
 from .qzone_del_comment import QzoneCommentDeleter
 from .qzone_feed_fetch import QzoneFeedFetcher
@@ -2608,6 +2609,17 @@ class QzoneAutoLikePlugin(Star):
             logger.error(traceback.format_exc())
             yield event.plain_result(f"❌ 异常：{e}")
 
+    @filter.llm_tool(name="sleep_seconds")
+    async def llm_tool_sleep_seconds(self, event: AstrMessageEvent = None, sec: float = 0):
+        """Sleep for N seconds (tool-loop helper).
+
+        Args:
+            sec(number): seconds to sleep
+        """
+        await asyncio.to_thread(sleep_seconds, sec)
+        if event is not None:
+            yield event.plain_result(f"slept {sec} sec")
+
     @filter.llm_tool(name="qz_post")
     async def llm_tool_qz_post(self, event: AstrMessageEvent, text: str, confirm: bool = False):
         """发送QQ空间说说。
@@ -2664,7 +2676,7 @@ class QzoneAutoLikePlugin(Star):
             ts = req.func_tool or ToolSet()
 
             # Prefer get_tool when available; fallback to get_func.
-            for name in ("qz_post", "qz_delete", "qz_del_comment"):
+            for name in ("qz_post", "qz_delete", "qz_del_comment", "sleep_seconds"):
                 tool = None
                 try:
                     tool = mgr.get_tool(name)
