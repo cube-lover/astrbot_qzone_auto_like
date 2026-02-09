@@ -897,6 +897,7 @@ class QzoneAutoLikePlugin(Star):
         if not self.my_qq or not self.cookie:
             yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
             return
+
         try:
             scanner = QzoneProtectScanner(self.my_qq, self.cookie)
         except Exception as e:
@@ -914,14 +915,26 @@ class QzoneAutoLikePlugin(Star):
                 lines.append(diag)
             if errs:
                 for s in list(errs)[:5]:
-                    # keep full head for inspection in debug versions
                     lines.append(f"err: {s}")
             if refs:
-                # show a few samples for verification
                 for r in refs[:3]:
                     lines.append(
                         f"ref: topicId={r.topic_id} commentId={r.comment_id} commentUin={r.comment_uin} abstime={r.abstime}"
                     )
+
+            # Debug: try fetch a full module HTML for a recent topic and show whether it contains comments-list.
+            # This helps verify URL/params/cookie correctness.
+            if self.my_qq and self.cookie:
+                try:
+                    status2, html2 = await asyncio.to_thread(scanner.fetch_feeds_module_html, self.my_qq, 5)
+                    head2 = (html2 or "")[:600].replace("\n", " ").replace("\r", " ")
+                    has_feed_data = "name=\"feed_data\"" in (html2 or "")
+                    has_comments = "comments-item" in (html2 or "")
+                    lines.append(f"module_fetch status={status2} has_feed_data={has_feed_data} has_comments={has_comments}")
+                    lines.append(f"module_head={head2}")
+                except Exception as e:
+                    lines.append(f"module_fetch_error: {e}")
+
             yield event.plain_result("\n".join(lines))
         except Exception as e:
             logger.error(f"[Qzone] protect scan once 异常: {e}")

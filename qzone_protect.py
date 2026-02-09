@@ -155,7 +155,7 @@ def _try_extract_json_from_callback(text: str) -> Optional[dict]:
 class FeedCommentRef:
     topic_id: str
     tid: str
-    abstime: int
+    abstime: int  # post abstime
     comment_id: str
     comment_uin: str
 
@@ -185,6 +185,35 @@ class QzoneProtectScanner:
             "origin": "https://user.qzone.qq.com",
             "referer": f"https://user.qzone.qq.com/{self.my_qq}/infocenter?via=toolbar",
         }
+
+    def fetch_feeds_module_html(self, host_uin: str, showcount: int = 5) -> Tuple[int, str]:
+        """Fetch feeds_html_module HTML used by the web UI (contains comments-list).
+
+        This does not require JS parsing; it returns a full HTML document.
+        """
+
+        host_uin = str(host_uin or "").strip() or self.my_qq
+        showcount = int(showcount) if showcount else 5
+        if showcount <= 0:
+            showcount = 5
+        if showcount > 20:
+            showcount = 20
+
+        url = (
+            "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds_html_module"
+            "?g_iframeUser=1"
+            f"&i_uin={host_uin}"
+            f"&i_login_uin={self.my_qq}"
+            "&mode=4&previewV8=1&style=35&version=8&needDelOpr=true&transparence=true"
+            "&hideExtend=false"
+            f"&showcount={showcount}"
+            "&MORE_FEEDS_CGI=http%3A%2F%2Fic2.s8.qzone.qq.com%2Fcgi-bin%2Ffeeds%2Ffeeds_html_act_all"
+            "&refer=2"
+            "&paramstring=os-winxp%7C100"
+        )
+
+        res = requests.get(url, headers=self.headers, timeout=20)
+        return res.status_code, (res.text or "")
 
     def scan_recent_comments(self, pages: int = 2, count: int = 10) -> Tuple[int, List[FeedCommentRef]]:
         out: List[FeedCommentRef] = []
