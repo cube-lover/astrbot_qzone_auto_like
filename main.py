@@ -1549,13 +1549,15 @@ class QzoneAutoLikePlugin(Star):
         t = (topic_id or "").strip()
         cid = (comment_id or "").strip()
 
-        # Support natural language path via latest/idx.
-        if (not t or not cid) and latest:
+        # Resolve ids from memory when requested.
+        # - latest=true: delete the most recent successful comment recorded by this plugin.
+        # - idx: delete the Nth from latest (1=latest).
+        if (not t or not cid) and (latest or (str(idx or "").strip() not in ("", "1"))):
             if not self._recent_comment_refs:
-                yield event.plain_result("找不到评论记录（重启后会清空）。请先评论一次，或提供 topic_id/comment_id。")
+                yield event.plain_result("找不到评论记录（重启后会清空）。请先用命令评论一次（，评论 1），或提供 topic_id/comment_id。")
                 return
             try:
-                n = int(str(idx or "1"))
+                n = int(str(idx or "1").strip())
             except Exception:
                 n = 1
             if n <= 0:
