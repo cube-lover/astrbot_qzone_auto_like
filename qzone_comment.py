@@ -108,7 +108,7 @@ class QzoneCommenter:
             "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
         }
 
-    def add_comment(self, tid: str, text: str) -> Tuple[int, CommentResult]:
+    def add_comment(self, tid: str, text: str, topic_id: str = "") -> Tuple[int, CommentResult]:
         t = (tid or "").strip()
         content = (text or "").strip()
         if not t:
@@ -123,7 +123,8 @@ class QzoneCommenter:
 
         # Aligned with browser FormData (minimal required fields).
         # topicId format observed: "<hostUin>_<tid>__1".
-        topic_id = f"{self.my_qq}_{t}__1" if "_" not in t else t
+        # Prefer caller-provided topic_id (for commenting other user's space).
+        topic_id = (topic_id or "").strip() or (f"{self.my_qq}_{t}__1" if "_" not in t else t)
 
         data: Dict[str, Any] = {
             "g_tk": str(self.g_tk),

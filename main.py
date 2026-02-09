@@ -1501,7 +1501,8 @@ class QzoneAutoLikePlugin(Star):
                 cmt = cmt[:60].rstrip()
 
             attempted += 1
-            status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt)
+            topic_id = str(item.get("topic_id") or "").strip()
+            status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt, topic_id)
             logger.info(
                 "[Qzone] comment 返回 | status=%s ok=%s code=%s msg=%s comment_id=%s topic_id=%s head=%s",
                 status,
@@ -1816,14 +1817,15 @@ class QzoneAutoLikePlugin(Star):
             cmt = cmt_txt.strip().strip("\"'` ")
             if len(cmt) > 60:
                 cmt = cmt[:60].rstrip()
-            drafts.append((tid, cmt))
+            topic_id = str(item.get("topic_id") or "").strip()
+            drafts.append((tid, cmt, topic_id))
 
         if not drafts:
             yield event.plain_result("生成评论为空")
             return
 
         if not confirm:
-            preview = "\n".join([f"tid={t} 评论={c}" for t, c in drafts[:5]])
+            preview = "\n".join([f"tid={t} 评论={c}" for t, c, _topic in drafts[:5]])
             more = "" if len(drafts) <= 5 else f"\n...(+{len(drafts)-5})"
             yield event.plain_result("草稿（未发送）：\n" + preview + more)
             return
@@ -1840,8 +1842,8 @@ class QzoneAutoLikePlugin(Star):
         commenter = QzoneCommenter(self.my_qq, self.cookie)
         ok_cnt = 0
         recorded_cnt = 0
-        for tid, cmt in drafts:
-            status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt)
+        for tid, cmt, topic_id in drafts:
+            status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt, topic_id)
             if status == 200 and result.ok:
                 ok_cnt += 1
                 try:
