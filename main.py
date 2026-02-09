@@ -1419,6 +1419,18 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
+                # Remove the deleted ref from memory so /评论记录 stays accurate.
+                try:
+                    self._recent_comment_refs = [
+                        r
+                        for r in self._recent_comment_refs
+                        if not (
+                            str(r.get("topicId") or "").strip() == str(topic_id).strip()
+                            and str(r.get("commentId") or "").strip() == str(comment_id).strip()
+                        )
+                    ]
+                except Exception:
+                    pass
                 yield event.plain_result("✅ 已删除评论")
             else:
                 hint = result.message or "删除评论失败"
@@ -1662,6 +1674,17 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
+                try:
+                    self._recent_comment_refs = [
+                        r
+                        for r in self._recent_comment_refs
+                        if not (
+                            str(r.get("topicId") or "").strip() == str(t).strip()
+                            and str(r.get("commentId") or "").strip() == str(cid).strip()
+                        )
+                    ]
+                except Exception:
+                    pass
                 yield event.plain_result("✅ 已删除评论")
             else:
                 hint = result.message or "删除评论失败"
@@ -1801,27 +1824,27 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.on_llm_request(priority=5)
     async def on_llm_request(self, event: AstrMessageEvent, req, *args):
-        """把 qz_post 工具挂到当前会话的 LLM 请求里。
-
-        说明：这样你用唤醒词聊天时，模型就可以选择调用 qz_post。
-        """
+        """把 Qzone 工具挂到当前会话的 LLM 请求里（让“，”触发的自然语言也能调用）。"""
         try:
             mgr = self.context.get_llm_tool_manager()
-            tool = mgr.get_func("qz_post") if mgr else None
-            if not tool:
+            if not mgr:
                 return
 
             ts = req.func_tool or ToolSet()
-            ts.add_tool(tool)
-            # AstrBot versions differ: some managers expose get_tool(), others only get_func().
-            try:
-                ts.add_tool(mgr.get_tool("qz_delete"))
-                ts.add_tool(mgr.get_tool("qz_comment"))
-                ts.add_tool(mgr.get_tool("qz_del_comment"))
-            except Exception:
-                ts.add_tool(mgr.get_func("qz_delete"))
-                ts.add_tool(mgr.get_func("qz_comment"))
-                ts.add_tool(mgr.get_func("qz_del_comment"))
+
+            # Prefer get_tool when available; fallback to get_func.
+            for name in ("qz_post", "qz_delete", "qz_comment", "qz_del_comment"):
+                tool = None
+                try:
+                    tool = mgr.get_tool(name)
+                except Exception:
+                    try:
+                        tool = mgr.get_func(name)
+                    except Exception:
+                        tool = None
+                if tool:
+                    ts.add_tool(tool)
+
             req.func_tool = ts
         except Exception as e:
             logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
