@@ -1058,6 +1058,7 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.command("定时说说")
     async def ai_post_ctl(self, event: AstrMessageEvent):
+        # Back-compat / alias: allow users to say "定时说说任务列表" etc.
         """Control AI scheduled posting.
 
         用法：
@@ -1078,8 +1079,7 @@ class QzoneAutoLikePlugin(Star):
                 text = text[len(prefix) :].strip()
                 break
 
-        if not text or text in ("状态", "status"):
-            # reuse list output
+        if not text or text in ("状态", "status", "任务列表", "列表", "list"):
             async for r in self.cron_list_local(event):
                 yield r
             return
