@@ -174,5 +174,10 @@
     "type": "int",
     "description": "发布后多少分钟自动删除（0=不删除）",
     "default": 0
+  },
+  "ai_post_last_run_ts": {
+    "type": "float",
+    "description": "AI定时发说说：上次触发时间戳（自动写入）",
+    "default": 0
   }
 }

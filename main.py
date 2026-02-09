@@ -702,6 +702,13 @@ class QzoneAutoLikePlugin(Star):
                 content = "【AI发送】" + content
 
             status, result = await asyncio.to_thread(poster.publish_text, content)
+            try:
+                self.config["ai_post_last_run_ts"] = time.time()
+                if hasattr(self.config, "save_config"):
+                    self.config.save_config()
+            except Exception:
+                pass
+
             logger.info(
                 "[Qzone] AI post 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
                 status,
@@ -1197,10 +1204,41 @@ class QzoneAutoLikePlugin(Star):
         mark = bool(self.config.get("ai_post_mark", True))
         provider_id = str(self.config.get("ai_post_provider_id", "") or "").strip()
 
+        prompt = str(self.config.get("ai_post_prompt", "") or "").strip()
+        daily_prompt = str(self.config.get("ai_post_daily_prompt", "") or "").strip()
+
+        # Best-effort estimate for next run time.
+        next_run = "-"
+        try:
+            now = time.time()
+            if interval_min > 0:
+                last = float(self.config.get("ai_post_last_run_ts", 0) or 0)
+                base = last if last > 0 else now
+                nxt = base + interval_min * 60
+                next_run = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(nxt))
+            elif daily_time:
+                m = re.match(r"^(\d{1,2}):(\d{2})$", daily_time)
+                if m:
+                    hh = int(m.group(1)); mm = int(m.group(2))
+                    lt = time.localtime(now)
+                    tgt = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, hh, mm, 0, lt.tm_wday, lt.tm_yday, lt.tm_isdst))
+                    if tgt <= now:
+                        tgt += 86400
+                    next_run = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(tgt))
+        except Exception:
+            next_run = "-"
+
+        def _short(s: str, n: int = 40) -> str:
+            s = (s or "").strip().replace("\n", " ").replace("\r", " ")
+            return s if len(s) <= n else (s[:n] + "...")
+
         lines = [
             "本插件定时任务（AI发说说）：",
             f"开关: {enabled} | 任务: {ai_state} | 运行中: {ai_running}",
+            f"下次触发: {next_run}",
             f"间隔(分钟): {interval_min} | 每日: {daily_time or '-'} | 删后(分钟): {delete_after} | AI标记: {mark}",
+            f"提示词(interval): {_short(prompt) or '-'}",
+            f"提示词(daily): {_short(daily_prompt) or '-'}",
             f"模型(provider_id): {provider_id or '-'}",
             f"通知(发): enabled={self.ai_post_notify_enabled} mode={self.ai_post_notify_mode} 私聊={self.ai_post_notify_private_qq or '-'} 群={self.ai_post_notify_group_id or '-'}",
             f"通知(删): enabled={self.ai_post_delete_notify_enabled} mode={self.ai_post_delete_notify_mode} 私聊={self.ai_post_delete_notify_private_qq or '-'} 群={self.ai_post_delete_notify_group_id or '-'}",
