@@ -912,8 +912,12 @@ class QzoneAutoLikePlugin(Star):
     @filter.command("护评状态")
     async def protect_status(self, event: AstrMessageEvent):
         protect_running = self._protect_task is not None and (not self._protect_task.done())
+        task_state = "none"
+        if self._protect_task is not None:
+            task_state = "done" if self._protect_task.done() else "running"
+
         lines = [
-            f"护评 enabled={self.protect_enabled} running={protect_running}",
+            f"护评 enabled={self.protect_enabled} running={protect_running} task={task_state}",
             f"interval={self.protect_poll_interval}s pages={self.protect_pages} window_min={self.protect_window_minutes} notify={self.protect_notify_mode}",
             f"seen_cache={len(self._protect_seen)}",
             f"last_scan={getattr(self, '_protect_last_scan', '')}",
@@ -2450,9 +2454,12 @@ class QzoneAutoLikePlugin(Star):
         await self._maybe_start_ai_task()
 
         if self.protect_enabled:
-            if self._protect_task is None or self._protect_task.done():
+            if not self.my_qq or not self.cookie:
+                logger.error("[Qzone] protect_enabled=true 但 my_qq/cookie 缺失，护评不启动")
+            elif self._protect_task is None or self._protect_task.done():
                 self._protect_stop.clear()
                 self._protect_task = asyncio.create_task(self._protect_worker())
+                logger.info("[Qzone] protect worker task created")
 
     async def terminate(self):
         if self._is_running():
