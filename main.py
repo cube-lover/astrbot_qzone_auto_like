@@ -1291,6 +1291,15 @@ class QzoneAutoLikePlugin(Star):
             text = re.sub(r"@\s*\d{5,12}", "", text).strip()
             text = re.sub(r"\[At:\d{5,12}\]", "", text).strip()
 
+        # If message contains a clear idx (1..999), prefer idx-mode even if routers left extra tokens.
+        # This avoids mis-parsing "评论 1" as manual content.
+        m_idx = re.search(r"\b(\d{1,3})\b", text)
+        if m_idx:
+            try:
+                text = str(int(m_idx.group(1)))
+            except Exception:
+                pass
+
         # If user provided manual comment text, comment the latest post directly.
         manual = (text or "").strip()
         if manual and not (manual.isdigit() and len(manual) <= 3):
