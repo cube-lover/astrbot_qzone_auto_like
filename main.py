@@ -1082,6 +1082,9 @@ class QzoneAutoLikePlugin(Star):
                 lines.append(f"{i}) {tstr} tid={tid} | {content}")
                 i += 1
 
+            # include short target echo to make diagnosis easy
+            if target_uin and target_uin != self.my_qq:
+                lines[0] = lines[0] + f"（目标空间 {target_uin}）"
             yield event.plain_result("\n\n".join(lines))
         except Exception as e:
             logger.error(f"[Qzone] 说说列表异常: {e}")
@@ -1113,20 +1116,27 @@ class QzoneAutoLikePlugin(Star):
 
         try:
             host_uin = self.my_qq
-            # allow "说说表 10 @12345" / "说说表 @12345 10"
+            # allow "说说表 10 @12345" / "说说表 @12345 10" / "说说表 [At:12345]"
             try:
-                for seg in (getattr(event, "message_obj", None) or []):
-                    if getattr(seg, "type", None) in ("at", "mention"):
-                        u = str(getattr(seg, "qq", "") or getattr(seg, "target", "") or "").strip()
-                        if u.isdigit():
-                            host_uin = u
-                            break
+                chain = getattr(event.message_obj, "message", [])
+                for seg in chain:
+                    if getattr(seg, "type", "") == "at":
+                        qq = getattr(seg, "qq", "")
+                        if qq:
+                            u = str(qq).strip()
+                            if u.isdigit():
+                                host_uin = u
+                                break
             except Exception:
                 pass
             if host_uin == self.my_qq:
                 m_at = re.search(r"@\s*(\d{5,12})", (event.message_str or ""))
                 if m_at:
                     host_uin = m_at.group(1)
+            if host_uin == self.my_qq:
+                m_cq = re.search(r"\[At:(\d{5,12})\]", (event.message_str or ""))
+                if m_cq:
+                    host_uin = m_cq.group(1)
 
             fetcher = QzoneFeedFetcher(host_uin, self.cookie, my_qq=self.my_qq)
             # page size 10, pages enough to cover n
