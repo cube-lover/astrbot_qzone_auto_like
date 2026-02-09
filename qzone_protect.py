@@ -230,6 +230,10 @@ class QzoneProtectScanner:
         comment_hits = 0
         html_blobs = 0
         topic_hits = 0
+
+        module_status = 0
+        module_hits = 0
+        module_comment_hits = 0
         pages = int(pages) if pages else 1
         if pages <= 0:
             pages = 1
@@ -448,11 +452,54 @@ class QzoneProtectScanner:
                         )
                     )
 
+        # If feeds3 stream doesn't include comments, fall back to module HTML which usually contains comment list.
+        # Note: this is heavier but makes protect actually workable.
+        if comment_hits == 0 and topic_hits > 0:
+            try:
+                module_status, module_html = self.fetch_feeds_module_html(self.my_qq, showcount=max(5, min(20, count)))
+                if module_status == 200 and module_html:
+                    module_hits = 1
+
+                    # Extract each feed block's feed_data tag to get topicId/tid/abstime.
+                    for m_feed in re.finditer(r"<i[^>]*\bname=\"feed_data\"[^>]*>", module_html, re.I):
+                        tag = m_feed.group(0)
+                        mm_tid = re.search(r"\bdata-tid=\"([^\"]+)\"", tag)
+                        mm_topic = re.search(r"\bdata-topicid=\"([^\"]+)\"", tag)
+                        mm_ab = re.search(r"\bdata-abstime=\"([0-9]{6,})\"", tag)
+                        tid = mm_tid.group(1) if mm_tid else ""
+                        topic_id = mm_topic.group(1) if mm_topic else ""
+                        abstime = int(mm_ab.group(1)) if mm_ab else 0
+                        if not tid or not topic_id:
+                            continue
+
+                        # Find the nearest comments-item blocks after this tag (within a window).
+                        window = module_html[m_feed.end() : m_feed.end() + 150000]
+                        for cm in re.finditer(
+                            r"comments-item[^>]*data-type=\"commentroot\"[^>]*data-tid=\"(\d+)\"[^>]*data-uin=\"(\d+)\"",
+                            window,
+                            re.I,
+                        ):
+                            cid = cm.group(1)
+                            cuin = cm.group(2)
+                            module_comment_hits += 1
+                            out.append(
+                                FeedCommentRef(
+                                    topic_id=topic_id,
+                                    tid=tid,
+                                    abstime=abstime,
+                                    comment_id=cid,
+                                    comment_uin=cuin,
+                                )
+                            )
+            except Exception as e:
+                self.last_errors.append(f"module_parse_error: {e}")
+
         try:
             self.last_diag = (
                 "[Qzone][protect_scan] "
                 f"pages={pages} count={count} feeds_items={feeds_items} html_items={html_items} html_blobs={html_blobs} "
-                f"topic_hits={topic_hits} comment_hits={comment_hits} out={len(out)} errors={len(self.last_errors)}"
+                f"topic_hits={topic_hits} comment_hits={comment_hits} module_hits={module_hits} module_status={module_status} "
+                f"module_comment_hits={module_comment_hits} out={len(out)} errors={len(self.last_errors)}"
             )
         except Exception:
             self.last_diag = ""
