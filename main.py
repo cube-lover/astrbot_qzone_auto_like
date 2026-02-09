@@ -1361,13 +1361,14 @@ class QzoneAutoLikePlugin(Star):
 
         host_uin = target_uin or self.my_qq
 
+        # Always fetch target space's mood list first (same data source as /说说, do not fall back to self cache when @别人)
         try:
             fetcher = QzoneFeedFetcher(host_uin, self.cookie, my_qq=self.my_qq)
             status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
             if status != 200 or not posts_obj:
                 diag = getattr(fetcher, "last_diag", "")
                 extra = f" | {diag}" if diag else ""
-                raise RuntimeError(f"fetch feeds failed status={status} posts={len(posts_obj)}{extra}")
+                raise RuntimeError(f"fetch feeds failed status={status} posts={len(posts_obj) if posts_obj else 0}{extra}")
 
             idx = n - 1
             if idx < 0:
@@ -1378,15 +1379,21 @@ class QzoneAutoLikePlugin(Star):
 
             target = posts_obj[idx]
             tid = str(getattr(target, "tid", "") or "").strip()
+            text_hint = str(getattr(target, "text", "") or "").strip()
             if not tid:
                 raise RuntimeError("target tid empty")
 
-            # We don't always have full text from feed fetch; let LLM generate a generic short comment.
-            posts = [{"tid": tid, "text": "（根据该说说内容生成一句自然短评）", "ts": time.time()}]
+            # Use fetched text if available; otherwise keep a generic hint.
+            posts = [{"tid": tid, "text": text_hint or "（根据该说说内容生成一句自然短评）", "ts": time.time()}]
         except Exception as e:
-            logger.info("[Qzone] fetch mood posts failed, fallback to cache: %s", e)
+            logger.info("[Qzone] fetch mood posts failed: %s", e)
 
-            # Fallback: use in-memory / on-disk post store.
+            # When commenting other's space, do not silently fall back to my local cache (it will target wrong tid).
+            if target_uin and target_uin != self.my_qq:
+                yield event.plain_result(f"获取目标空间说说失败，无法评论（目标空间 {target_uin}）：{e}")
+                return
+
+            # Fallback: use in-memory / on-disk post store for SELF only.
             distinct = []
             seen_tid = set()
             for item in reversed(self._recent_posts):
