@@ -213,7 +213,13 @@ class QzoneProtectScanner:
         )
 
         res = requests.get(url, headers=self.headers, timeout=20)
-        return res.status_code, (res.text or "")
+        # requests may guess encoding incorrectly; force utf-8 for stable diagnostics
+        try:
+            raw = res.content or b""
+            text = raw.decode("utf-8", errors="ignore")
+        except Exception:
+            text = res.text or ""
+        return res.status_code, text
 
     def scan_recent_comments(self, pages: int = 2, count: int = 10) -> Tuple[int, List[FeedCommentRef]]:
         out: List[FeedCommentRef] = []

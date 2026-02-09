@@ -927,11 +927,15 @@ class QzoneAutoLikePlugin(Star):
             if self.my_qq and self.cookie:
                 try:
                     status2, html2 = await asyncio.to_thread(scanner.fetch_feeds_module_html, self.my_qq, 5)
-                    head2 = (html2 or "")[:600].replace("\n", " ").replace("\r", " ")
                     has_feed_data = "name=\"feed_data\"" in (html2 or "")
                     has_comments = "comments-item" in (html2 or "")
                     lines.append(f"module_fetch status={status2} has_feed_data={has_feed_data} has_comments={has_comments}")
-                    lines.append(f"module_head={head2}")
+
+                    # Return a larger slice so the user can visually confirm comment blocks exist.
+                    head2 = (html2 or "")[:6000]
+                    tail2 = (html2 or "")[-2000:]
+                    lines.append("module_html_head=\n" + head2)
+                    lines.append("module_html_tail=\n" + tail2)
                 except Exception as e:
                     lines.append(f"module_fetch_error: {e}")
 
