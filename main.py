@@ -1303,6 +1303,61 @@ class QzoneAutoLikePlugin(Star):
 
         yield event.plain_result(f"评论完成：成功={ok_cnt}/{attempted}")
 
+    @filter.command("评论记录")
+    async def comment_refs(self, event: AstrMessageEvent):
+        """查看最近成功评论的记录（用于 /删评 1）。
+
+        用法：
+        - /评论记录        （默认 10 条）
+        - /评论记录 5      （查看最近 5 条）
+        """
+
+        text = (event.message_str or "").strip()
+        # support both "/评论记录" and "评论记录"
+        for prefix in ("/评论记录", "评论记录"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+
+        n = 10
+        if text and text.isdigit() and len(text) <= 3:
+            try:
+                n = int(text)
+            except Exception:
+                n = 10
+        if n <= 0:
+            n = 1
+        if n > 200:
+            n = 200
+
+        refs = list(self._recent_comment_refs or [])
+        if not refs:
+            yield event.plain_result("评论记录为空（重启会清空；需要先成功评论一次后才会记录）。")
+            return
+
+        refs = refs[-n:]
+        lines = [f"共 {len(self._recent_comment_refs)} 条，展示最近 {len(refs)} 条（最新在后）："]
+        i = 1
+        for r in refs:
+            topic_id = str(r.get("topicId") or "").strip()
+            comment_id = str(r.get("commentId") or "").strip()
+            ts = int(float(r.get("ts") or 0) or 0)
+            tstr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "-"
+            lines.append(f"{i}) {tstr} | topicId={topic_id} | commentId={comment_id}")
+            i += 1
+
+        yield event.plain_result("\n".join(lines))
+
+    @filter.command("清空评论记录")
+    async def clear_comment_refs(self, event: AstrMessageEvent):
+        """清空内存中的评论记录（仅影响 /删评 1，重启也会清空）。
+
+        用法：/清空评论记录
+        """
+
+        self._recent_comment_refs = []
+        yield event.plain_result("✅ 已清空评论记录（仅内存；重启本来也会清空）")
+
     @filter.command("删评")
     async def del_comment(self, event: AstrMessageEvent):
         """删除评论（删评）。
