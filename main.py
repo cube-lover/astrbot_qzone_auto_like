@@ -1172,21 +1172,13 @@ class QzoneAutoLikePlugin(Star):
         if not hit:
             return
 
-        # Route to local handlers.
+        # Only stop propagation to prevent external tool-loop agents from hijacking.
+        # Do NOT reply here to avoid duplicate replies (the real handler is the @filter.command one).
         try:
-            if txt.startswith("定时任务列表") or txt.startswith("定时说说任务列表"):
-                async for r in self.cron_list_local(event):
-                    yield r
-            elif txt.startswith("定时任务") or txt.startswith("定时说说") or txt.startswith("qz定时") or txt.startswith("qz任务") or txt.startswith("qzone定时"):
-                async for r in self.ai_post_ctl(event):
-                    yield r
-            else:
-                return
-        finally:
-            try:
-                event.stop_event()
-            except Exception:
-                pass
+            event.stop_event()
+        except Exception:
+            pass
+        return
 
     @filter.command("定时任务列表")
     async def cron_list_local(self, event: AstrMessageEvent):
