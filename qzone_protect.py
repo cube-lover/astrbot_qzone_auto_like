@@ -251,15 +251,46 @@ class QzoneProtectScanner:
                         continue
                     html_items += 1
 
-                    m = re.search(
-                        r"name=\\\"feed_data\\\"[^>]*\bdata-tid=\\\"([^\\\"]+)\\\"[^>]*\bdata-topicid=\\\"([^\\\"]+)\\\"",
-                        html,
-                    )
-                    if not m:
+                    m = re.search(r"<i[^>]*\bname=\\\"feed_data\\\"[^>]*>", html, re.I)
+                    tag = m.group(0) if m else ""
+                    if not tag:
+                        m = re.search(r"<i[^>]*\bname=\"feed_data\"[^>]*>", html, re.I)
+                        tag = m.group(0) if m else ""
+                    if not tag:
+                        m = re.search(r"<i[^>]*\bname='feed_data'[^>]*>", html, re.I)
+                        tag = m.group(0) if m else ""
+
+                    tid = ""
+                    topic_id = ""
+                    if tag:
+                        mm = re.search(r"\bdata-tid=\\\"([^\\\"]+)\\\"", tag)
+                        if mm:
+                            tid = mm.group(1)
+                        mm = re.search(r"\bdata-topicid=\\\"([^\\\"]+)\\\"", tag)
+                        if mm:
+                            topic_id = mm.group(1)
+
+                        if not tid:
+                            mm = re.search(r"\bdata-tid=\"([^\"]+)\"", tag)
+                            if mm:
+                                tid = mm.group(1)
+                        if not topic_id:
+                            mm = re.search(r"\bdata-topicid=\"([^\"]+)\"", tag)
+                            if mm:
+                                topic_id = mm.group(1)
+
+                        if not tid:
+                            mm = re.search(r"\bdata-tid='([^']+)'", tag)
+                            if mm:
+                                tid = mm.group(1)
+                        if not topic_id:
+                            mm = re.search(r"\bdata-topicid='([^']+)'", tag)
+                            if mm:
+                                topic_id = mm.group(1)
+
+                    if not tid or not topic_id:
                         continue
 
-                    tid = m.group(1)
-                    topic_id = m.group(2)
                     topic_hits += 1
 
                     abstime = 0
@@ -310,14 +341,50 @@ class QzoneProtectScanner:
                 html_items += 1
 
                 m = re.search(
-                    r"name=\\\"feed_data\\\"[^>]*\bdata-tid=\\\"([^\\\"]+)\\\"[^>]*\bdata-topicid=\\\"([^\\\"]+)\\\"",
+                    r"<i[^>]*\bname=\\\"feed_data\\\"[^>]*>",
                     html,
+                    re.I,
                 )
-                if not m:
+                tag = m.group(0) if m else ""
+                if not tag:
+                    m = re.search(r"<i[^>]*\bname=\"feed_data\"[^>]*>", html, re.I)
+                    tag = m.group(0) if m else ""
+                if not tag:
+                    m = re.search(r"<i[^>]*\bname='feed_data'[^>]*>", html, re.I)
+                    tag = m.group(0) if m else ""
+
+                tid = ""
+                topic_id = ""
+
+                if tag:
+                    mm = re.search(r"\bdata-tid=\\\"([^\\\"]+)\\\"", tag)
+                    if mm:
+                        tid = mm.group(1)
+                    mm = re.search(r"\bdata-topicid=\\\"([^\\\"]+)\\\"", tag)
+                    if mm:
+                        topic_id = mm.group(1)
+
+                    if not tid:
+                        mm = re.search(r"\bdata-tid=\"([^\"]+)\"", tag)
+                        if mm:
+                            tid = mm.group(1)
+                    if not topic_id:
+                        mm = re.search(r"\bdata-topicid=\"([^\"]+)\"", tag)
+                        if mm:
+                            topic_id = mm.group(1)
+
+                    if not tid:
+                        mm = re.search(r"\bdata-tid='([^']+)'", tag)
+                        if mm:
+                            tid = mm.group(1)
+                    if not topic_id:
+                        mm = re.search(r"\bdata-topicid='([^']+)'", tag)
+                        if mm:
+                            topic_id = mm.group(1)
+
+                if not tid or not topic_id:
                     continue
 
-                tid = m.group(1)
-                topic_id = m.group(2)
                 topic_hits += 1
 
                 abstime = 0
