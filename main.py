@@ -755,11 +755,18 @@ class QzoneAutoLikePlugin(Star):
             self.protect_pages,
         )
 
+        # runtime state for diagnostics (even if logs are filtered)
+        self._protect_last_scan = ""
+        self._protect_last_delete = ""
+
         while not self._protect_stop.is_set():
             try:
                 status, refs = await asyncio.to_thread(scanner.scan_recent_comments, self.protect_pages, 10)
                 diag = getattr(scanner, "last_diag", "")
                 errs = getattr(scanner, "last_errors", [])
+                self._protect_last_scan = f"ts={int(time.time())} status={status} refs={len(refs)}"
+                if diag:
+                    self._protect_last_scan += " | " + diag
                 if diag:
                     logger.info("%s", diag)
                 if errs and self.protect_notify_mode in ("error", "all"):
@@ -775,6 +782,10 @@ class QzoneAutoLikePlugin(Star):
 
                     deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
 
+                    del_try = 0
+                    del_ok = 0
+                    del_fail = 0
+
                     # Delete only others' comments; never delete own comments.
                     for r in refs:
                         if str(r.comment_uin) == str(self.my_qq):
@@ -787,8 +798,10 @@ class QzoneAutoLikePlugin(Star):
                         # mark first to avoid spamming on repeated failures
                         self._protect_seen[k] = time.time()
 
+                        del_try += 1
                         ds, dr = await asyncio.to_thread(deleter.delete_comment, r.topic_id, r.comment_id, r.comment_uin)
                         if ds == 200 and dr.ok:
+                            del_ok += 1
                             if self.protect_notify_mode == "all":
                                 logger.info(
                                     "[Qzone] protect delete ok topicId=%s commentId=%s commentUin=%s",
@@ -797,6 +810,7 @@ class QzoneAutoLikePlugin(Star):
                                     r.comment_uin,
                                 )
                         else:
+                            del_fail += 1
                             if self.protect_notify_mode in ("error", "all"):
                                 logger.warning(
                                     "[Qzone] protect delete failed status=%s code=%s msg=%s topicId=%s commentId=%s commentUin=%s",
@@ -807,6 +821,10 @@ class QzoneAutoLikePlugin(Star):
                                     r.comment_id,
                                     r.comment_uin,
                                 )
+
+                    self._protect_last_delete = (
+                        f"ts={int(time.time())} kept={len(refs)} try={del_try} ok={del_ok} fail={del_fail}"
+                    )
 
                 await asyncio.wait_for(self._protect_stop.wait(), timeout=self.protect_poll_interval)
             except asyncio.TimeoutError:
@@ -898,8 +916,10 @@ class QzoneAutoLikePlugin(Star):
             f"护评 enabled={self.protect_enabled} running={protect_running}",
             f"interval={self.protect_poll_interval}s pages={self.protect_pages} window_min={self.protect_window_minutes} notify={self.protect_notify_mode}",
             f"seen_cache={len(self._protect_seen)}",
+            f"last_scan={getattr(self, '_protect_last_scan', '')}",
+            f"last_delete={getattr(self, '_protect_last_delete', '')}",
         ]
-        yield event.plain_result("\n".join(lines))
+        yield event.plain_result("\n".join([s for s in lines if s and not s.endswith('=')]))
 
     @filter.command("护评扫一次")
     async def protect_scan_once(self, event: AstrMessageEvent):
