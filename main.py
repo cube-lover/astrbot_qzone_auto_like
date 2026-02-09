@@ -1320,24 +1320,8 @@ class QzoneAutoLikePlugin(Star):
     @filter.command("qz任务")
     @filter.command("qzone定时")
     async def ai_post_ctl(self, event: AstrMessageEvent):
-        # Best-effort: auto-start the worker when user opens the panel / uses commands.
-        try:
-            await self._maybe_start_ai_task()
-        except Exception:
-            pass
-        # Back-compat / alias: allow users to say "定时说说任务列表" etc.
-        """Control AI scheduled posting.
-
-        用法（推荐用“定时任务”）：
-        - ，定时任务 状态
-        - ，定时任务 开/关
-        - ，定时任务 interval 5
-        - ，定时任务 daily 08:30
-        - ，定时任务 删后 5
-        - ，定时任务 prompt 你的提示词...
-
-        兼容旧命令：定时说说 / qz定时 / qz任务 / qzone定时
-        """
+        yield event.plain_result("已移除‘定时任务’的大语言模型/未来任务相关功能（避免被系统 tool_loop 抢走）。如需定时发布请使用外部‘未来任务’功能或改用服务器侧 cron。")
+        return
 
         raw = (event.message_str or "").strip()
         text = raw
@@ -2403,152 +2387,8 @@ class QzoneAutoLikePlugin(Star):
             hint = result.message or "评论失败"
             yield event.plain_result(f"❌ 评论失败：status={status} code={result.code} msg={hint}")
 
-    @filter.llm_tool(name="qz_comment")
-    async def llm_tool_qz_comment(
-        self,
-        event: AstrMessageEvent = None,
-        count: str = "1",
-        idx: str = "",
-        confirm: bool = False,
-    ):
-        """根据主页说说生成并发表评论（仅自己的空间）。
-
-        Args:
-            count(string): 兼容参数：第 N 新的说说（默认 1）。
-            idx(string): 推荐参数：第 N 新的说说（1=最新，2=第二新...）；优先于 count。
-            confirm(boolean): 是否确认直接发表评论；false 时只返回草稿。
-        """
-        # Use idx (preferred) or count (compat) as "Nth latest post".
-        raw_n = str(idx or "").strip() or str(count or "1").strip()
-        try:
-            n = int(raw_n)
-        except Exception:
-            n = 1
-        if n <= 0:
-            n = 1
-
-        # Align tool behavior with /评论 N: always fetch from main page, not local cache.
-        try:
-            if event is None:
-                logger.error("[Qzone] qz_comment missing event (tool runner issue)")
-                return
-
-            fetcher = QzoneFeedFetcher(self.my_qq, self.cookie, my_qq=self.my_qq)
-            status, posts_obj = await asyncio.to_thread(fetcher.fetch_mood_posts, 20, 4)
-            if status != 200 or not posts_obj:
-                diag = getattr(fetcher, "last_diag", "")
-                extra = f" | {diag}" if diag else ""
-                yield event.plain_result(f"❌ 获取主页说说失败：status={status} posts={len(posts_obj)}{extra}")
-                return
-
-            idx = n - 1
-            if idx < 0:
-                idx = 0
-            if idx >= len(posts_obj):
-                yield event.plain_result(f"当前只抓到 {len(posts_obj)} 条说说，无法评论第 {n} 条")
-                return
-
-            target = posts_obj[idx]
-            tid = str(getattr(target, "tid", "") or "").strip()
-            if not tid:
-                yield event.plain_result("❌ 获取到的说说缺少 tid")
-                return
-
-            # Use extracted post text as LLM prompt, so the comment is relevant.
-            text_hint = str(getattr(target, "text", "") or "").strip()
-            if not text_hint:
-                text_hint = "（未抓到说说正文；请生成一句通用短评）"
-            posts = [{"tid": tid, "text": text_hint, "ts": time.time()}]
-        except Exception as e:
-            yield event.plain_result(f"❌ 获取主页说说异常：{e}")
-            return
-
-        provider = self.context.get_using_provider(umo=event.unified_msg_origin)
-        if not provider:
-            yield event.plain_result("未配置文本生成服务")
-            return
-
-        system_prompt = (
-            "你是中文评论助手。请对QQ空间说说写一条具体、贴合内容的评论。\n"
-            "要求：不尬、不营销、不带链接；1句或2句；总字数<=60；只输出评论正文，不要解释。"
-        )
-
-        drafts = []
-        for item in posts:
-            content = str(item.get("text") or "").strip()
-            tid = str(item.get("tid") or "").strip()
-            if not tid or not content:
-                continue
-            resp = await provider.text_chat(prompt=content, system_prompt=system_prompt, context=[])
-            cmt_raw = getattr(resp, "content", None)
-            if cmt_raw is None:
-                cmt_raw = getattr(resp, "text", None)
-            if cmt_raw is None:
-                rc = getattr(resp, "result_chain", None)
-                if rc is not None:
-                    cmt_raw = str(rc)
-            if cmt_raw is None:
-                cmt_raw = str(resp)
-
-            cmt_txt = str(cmt_raw or "")
-            m = re.search(r"text='([^']*)'", cmt_txt)
-            if m:
-                cmt_txt = m.group(1)
-            cmt = cmt_txt.strip().strip("\"'` ")
-            if len(cmt) > 60:
-                cmt = cmt[:60].rstrip()
-            topic_id = str(item.get("topic_id") or "").strip()
-            drafts.append((tid, cmt, topic_id))
-
-        if not drafts:
-            yield event.plain_result("生成评论为空")
-            return
-
-        if not confirm:
-            preview = "\n".join([f"tid={t} 评论={c}" for t, c, _topic in drafts[:5]])
-            more = "" if len(drafts) <= 5 else f"\n...(+{len(drafts)-5})"
-            yield event.plain_result("草稿（未发送）：\n" + preview + more)
-            return
-
-        if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
-            return
-
-        delay_min = float(self.config.get("comment_delay_min_sec", 1) or 1)
-        delay_max = float(self.config.get("comment_delay_max_sec", 2) or 2)
-        if delay_min > delay_max:
-            delay_min, delay_max = delay_max, delay_min
-
-        commenter = QzoneCommenter(self.my_qq, self.cookie)
-        ok_cnt = 0
-        recorded_cnt = 0
-        for tid, cmt, topic_id in drafts:
-            status, result = await asyncio.to_thread(commenter.add_comment, tid, cmt, topic_id)
-            if status == 200 and result.ok:
-                ok_cnt += 1
-                try:
-                    cid = str(getattr(result, "comment_id", "") or "").strip()
-                    topic = str(getattr(result, "topic_id", "") or "").strip()
-                    if cid and topic:
-                        ref = {"topicId": topic, "commentId": cid, "ts": time.time()}
-                        self._recent_comment_refs = [
-                            r
-                            for r in self._recent_comment_refs
-                            if not (
-                                str(r.get("topicId") or "") == topic
-                                and str(r.get("commentId") or "") == cid
-                            )
-                        ]
-                        self._recent_comment_refs.append(ref)
-                        recorded_cnt += 1
-                        logger.info("[Qzone] comment_recorded topicId=%s commentId=%s", topic, cid)
-                        if self._comment_ref_max > 0 and len(self._recent_comment_refs) > self._comment_ref_max:
-                            self._recent_comment_refs = self._recent_comment_refs[-self._comment_ref_max :]
-                except Exception:
-                    pass
-            await asyncio.sleep(delay_min + random.random() * max(0.0, delay_max - delay_min))
-
-        yield event.plain_result(f"评论完成：成功={ok_cnt}/{len(drafts)}，记录={recorded_cnt}")
+    # qz_comment removed (LLM feature) per user request.
+    # NOTE: Keep the name out to avoid tool_loop calling it.
 
     @filter.llm_tool(name="qz_del_comment")
     async def llm_tool_qz_del_comment(
@@ -2824,7 +2664,7 @@ class QzoneAutoLikePlugin(Star):
             ts = req.func_tool or ToolSet()
 
             # Prefer get_tool when available; fallback to get_func.
-            for name in ("qz_post", "qz_delete", "qz_comment", "qz_del_comment"):
+            for name in ("qz_post", "qz_delete", "qz_del_comment"):
                 tool = None
                 try:
                     tool = mgr.get_tool(name)
