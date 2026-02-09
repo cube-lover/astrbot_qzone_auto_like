@@ -1151,6 +1151,7 @@ class QzoneAutoLikePlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def _intercept_local_scheduler_cmds(self, event: AstrMessageEvent):
         # Intercept scheduler commands early to prevent external tool-loop agents from hijacking them.
+        # NOTE: Do NOT stop_event here; stopping here can prevent our own command handlers from firing in some builds.
         raw = (event.message_str or "").strip()
         if not raw:
             return
@@ -1162,7 +1163,6 @@ class QzoneAutoLikePlugin(Star):
         if not txt:
             return
 
-        hit = False
         for p in (
             "qz定时",
             "qz任务",
@@ -1173,19 +1173,12 @@ class QzoneAutoLikePlugin(Star):
             "定时说说任务列表",
         ):
             if txt.startswith(p):
-                hit = True
-                break
-
-        if not hit:
-            return
-
-        # Only stop propagation to prevent external tool-loop agents from hijacking.
-        # Do NOT reply here to avoid duplicate replies (the real handler is the @filter.command one).
-        try:
-            event.stop_event()
-        except Exception:
-            pass
-        return
+                # Mark for command handler to stop propagation after it replies.
+                try:
+                    setattr(event, "_qz_stop_after", True)
+                except Exception:
+                    pass
+                return
 
     @filter.command("定时任务列表")
     async def cron_list_local(self, event: AstrMessageEvent):
@@ -1244,6 +1237,11 @@ class QzoneAutoLikePlugin(Star):
             f"通知(删): enabled={self.ai_post_delete_notify_enabled} mode={self.ai_post_delete_notify_mode} 私聊={self.ai_post_delete_notify_private_qq or '-'} 群={self.ai_post_delete_notify_group_id or '-'}",
         ]
         yield event.plain_result("\n".join(lines))
+        try:
+            if getattr(event, "_qz_stop_after", False):
+                event.stop_event()
+        except Exception:
+            pass
 
     @filter.command("定时说说")
     @filter.command("定时任务")
