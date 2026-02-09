@@ -1043,6 +1043,12 @@ class QzoneAutoLikePlugin(Star):
             if m_at:
                 target_uin = m_at.group(1)
 
+        # aiocqhttp log-format fallback: ",说说 [At:12345]"
+        if not target_uin:
+            m_cq = re.search(r"\[At:(\d{5,12})\]", raw)
+            if m_cq:
+                target_uin = m_cq.group(1)
+
         if target_uin:
             text = re.sub(r"@\s*\d{5,12}", "", text).strip()
 
@@ -1220,6 +1226,12 @@ class QzoneAutoLikePlugin(Star):
             m_at = re.search(r"@\s*(\d{5,12})", text)
             if m_at:
                 target_uin = m_at.group(1)
+
+        # aiocqhttp log-format fallback: ",评论 ... [At:12345]"
+        if not target_uin:
+            m_cq = re.search(r"\[At:(\d{5,12})\]", raw)
+            if m_cq:
+                target_uin = m_cq.group(1)
 
         if target_uin:
             # Remove @... from arg text so later parsing works.
