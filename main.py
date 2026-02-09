@@ -669,7 +669,21 @@ class QzoneAutoLikePlugin(Star):
             )
             try:
                 resp = await provider.text_chat(prompt=prompt, system_prompt=system_prompt, context=[])
-                content = (resp.content or "").strip()
+                content = ""
+                try:
+                    content = str(getattr(resp, "content", "") or "").strip()
+                except Exception:
+                    content = ""
+                if not content:
+                    try:
+                        content = str(getattr(resp, "text", "") or "").strip()
+                    except Exception:
+                        content = ""
+                if not content:
+                    try:
+                        content = str(resp).strip()
+                    except Exception:
+                        content = ""
             except Exception as e:
                 logger.error(f"[Qzone] AI post：LLM 调用失败: {e}")
                 return

@@ -2,7 +2,7 @@ name: astrbot_plugin_qzone_auto_like
 display_name: "QQ空间自动点赞（强日志版）"
 desc: "自动侦测QQ空间动态并点赞，提供详细后台日志便于排查cookie失效/风控/验证码；支持WebUI开关(enabled/auto_start)和命令(/qz_start /qz_stop /qz_status)。"
 author: cube-lover
-version: 1.5.96
+version: 1.5.97
 repo: "https://github.com/cube-lover/astrbot_qzone_auto_like"
 tags:
   - qzone
