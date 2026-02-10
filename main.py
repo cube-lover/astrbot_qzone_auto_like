@@ -657,9 +657,9 @@ class QzoneAutoLikePlugin(Star):
         if self._is_running():
             return
 
-        # If cookie is missing and auto-fetch is enabled, try a short, fast wait for client capture.
+        # If cookie is missing and auto-fetch is enabled, wait briefly for client capture.
         if (not self.cookie) and getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled and self.my_qq:
-            for _ in range(5):  # ~5s total
+            for _ in range(20):  # up to 20s
                 if getattr(self.cookie_fetcher, "_client", None):
                     break
                 await asyncio.sleep(1)
@@ -668,7 +668,7 @@ class QzoneAutoLikePlugin(Star):
                 if new_cookie:
                     self.cookie = new_cookie
             else:
-                logger.info("[Qzone] auto_start: no client captured yet; skip start (cookie empty)")
+                logger.info("[Qzone] auto_start: no client captured yet after 20s; skip start (cookie empty)")
                 return
 
         if not self.my_qq or not self.cookie:
