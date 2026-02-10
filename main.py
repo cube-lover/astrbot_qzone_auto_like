@@ -1433,8 +1433,12 @@ class QzoneAutoLikePlugin(Star):
                 if not self.my_qq or not self.cookie:
                     await event.send(event.plain_result("配置缺失：my_qq 或 cookie 为空"))
                 else:
+                    t = (self._last_tid or "").strip()
+                    if not t:
+                        # Nothing to delete in memory (e.g. bot restarted).
+                        return
                     poster = QzonePoster(self.my_qq, self.cookie)
-                    status, result = await asyncio.to_thread(poster.delete_latest)
+                    status, result = await asyncio.to_thread(poster.delete_by_tid, t)
                     logger.info(
                         "[Qzone] intercept delete_latest 返回 | status=%s ok=%s code=%s msg=%s head=%s",
                         status,
@@ -1445,6 +1449,10 @@ class QzoneAutoLikePlugin(Star):
                     )
                     if status == 200 and getattr(result, "ok", False):
                         # stay quiet on success
+                        try:
+                            self._last_tid = ""
+                        except Exception:
+                            pass
                         pass
                     else:
                         hint = getattr(result, "message", "") or "删除失败（可能 cookie/风控/验证码/权限）"
