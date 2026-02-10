@@ -794,19 +794,32 @@ class QzoneAutoLikePlugin(Star):
             to_private = self.ai_post_notify_private_qq if kind == "post" else self.ai_post_delete_notify_private_qq
             to_group = self.ai_post_notify_group_id if kind == "post" else self.ai_post_delete_notify_group_id
 
-            if not enabled or mode == "off":
+            if (not enabled) or (mode == "off"):
                 return
             text = str(msg or "").strip()
             if not text:
                 return
 
-            try:
-                if to_private:
+            sent_any = False
+            last_err = ""
+            # Send strictly to configured targets; do NOT fall back to replying in current chat.
+            if to_private:
+                try:
                     await _send_private(to_private, text)
-                if to_group:
+                    sent_any = True
+                except Exception as e:
+                    last_err = str(e)
+                    logger.warning(f"[Qzone] AI notify private failed kind={kind}: {e}")
+            if to_group:
+                try:
                     await _send_group(to_group, text)
-            except Exception as e:
-                logger.warning(f"[Qzone] AI notify failed kind={kind}: {e}")
+                    sent_any = True
+                except Exception as e:
+                    last_err = str(e)
+                    logger.warning(f"[Qzone] AI notify group failed kind={kind}: {e}")
+
+            if (not sent_any) and last_err:
+                logger.warning(f"[Qzone] AI notify dropped kind={kind} (no targets or send failed): {last_err}")
 
         async def _gen_and_post(prompt: str) -> None:
             mode = str(self.config.get("ai_post_mode", "fixed") or "fixed").strip() or "fixed"
