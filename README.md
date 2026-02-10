@@ -77,7 +77,7 @@ AstrBot 插件：QQ 空间自动化工具箱，覆盖“自动点赞 + 定时发
 
 开关：
 - `enabled`：是否启用后台轮询（总开关）
-- `auto_start`：Bot 启动后若 enabled=true 自动启动（适合常驻）
+- `auto_start`：Bot 启动后若 enabled=true 自动启动（适合常驻；默认开启）
 
 调参：
 - `poll_interval_sec`：轮询间隔（秒）
