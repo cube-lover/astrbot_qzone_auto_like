@@ -2924,7 +2924,6 @@ class QzoneAutoLikePlugin(Star):
             if self.llm_tool_reply_mode != "off":
                 yield event.plain_result(f"FAIL exception={e}")
             return
-            yield event.plain_result(f"FAIL exception={e}")
 
     @filter.on_llm_request(priority=5)
     async def on_llm_request(self, event: AstrMessageEvent, req, *args):
