@@ -43,7 +43,8 @@ AstrBot 插件：QQ 空间自动化工具箱，覆盖“自动点赞 + 定时发
 
 必填（不填就跑不起来）：
 - `my_qq`：当前登录 QQ 号（用于 referer/opuin）
-- `cookie`：QQ 空间 Cookie（至少包含 `p_skey=...`，否则无法计算 `g_tk`）
+- `cookie`：QQ 空间 Cookie（可留空并启用自动获取；若手填至少包含 `p_skey=...`，否则无法计算 `g_tk`）
+- `cookie_auto_fetch_enabled`：推荐开启；当 cookie 为空或失效时尝试从 Napcat/OneBot 获取 `user.qzone.qq.com` 的 cookies
 
 ### 如何获取 Cookie（Chrome / Edge）
 
@@ -60,6 +61,19 @@ AstrBot 插件：QQ 空间自动化工具箱，覆盖“自动点赞 + 定时发
 提示：
 - Cookie 属于登录态，千万不要发到群里/仓库/截图里
 - 失效后重新按以上步骤复制最新 Cookie
+
+### Cookie 自动获取（Napcat/OneBot）
+
+如果你使用的是 Napcat(AIOCQHTTP/OneBot v11) 适配器，可以把 `cookie` 留空，并在 WebUI 打开：
+- `cookie_auto_fetch_enabled=true`
+- `cookie_auto_fetch_cooldown_sec` 设一个合适的冷却（默认 120s）
+
+触发时机：
+- 发送/删除说说前，如果发现 `cookie` 为空，会尝试调用 OneBot 的 `get_cookies(domain="user.qzone.qq.com")` 自动拉取。
+
+注意：
+- 这个“检测”不是通过读取 cookie 过期时间，而是通过请求返回判断：如果接口返回非 `code=0` / 返回内容像登录页/验证页/风控页，就视为 cookie 可能失效。
+- 插件会在后台日志打印 `status/code/msg/head`（不会打印完整 cookie），用于你判断是“cookie 失效”还是“风控/验证码”。
 
 开关：
 - `enabled`：是否启用后台轮询（总开关）

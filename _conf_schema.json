@@ -11,7 +11,7 @@
   },
   "cookie_auto_fetch_enabled": {
     "type": "bool",
-    "description": "是否从 Napcat(AIOCQHTTP) 自动获取 user.qzone.qq.com 的 Cookie（推荐开启）",
+    "description": "是否从 Napcat(AIOCQHTTP/OneBot) 自动获取 user.qzone.qq.com 的 Cookie（推荐开启；可配合 cookie 留空使用）",
     "default": false
   },
   "cookie_auto_fetch_cooldown_sec": {
