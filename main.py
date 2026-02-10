@@ -1363,10 +1363,6 @@ class QzoneAutoLikePlugin(Star):
             "qz定时",
             "qz任务",
             "qzone定时",
-            "定时任务",
-            "定时任务列表",
-            "定时说说",
-            "定时说说任务列表",
         ):
             if txt.startswith(p):
                 try:
@@ -1389,7 +1385,9 @@ class QzoneAutoLikePlugin(Star):
                         pass
                 return
 
-    @filter.command("定时任务列表")
+    @filter.command("qz定时列表")
+    @filter.command("qz任务列表")
+    @filter.command("qzone定时列表")
     async def cron_list_local(self, event: AstrMessageEvent):
         """List plugin-local scheduled tasks (AI post interval/daily + deletion policy)."""
 
@@ -1456,8 +1454,6 @@ class QzoneAutoLikePlugin(Star):
         except Exception:
             pass
 
-    @filter.command("定时说说")
-    @filter.command("定时任务")
     @filter.command("qz定时")
     @filter.command("qz任务")
     @filter.command("qzone定时")
@@ -1469,10 +1465,6 @@ class QzoneAutoLikePlugin(Star):
         if text.startswith("，") or text.startswith(","):
             text = text[1:].lstrip()
         for prefix in (
-            "/定时说说",
-            "定时说说",
-            "/定时任务",
-            "定时任务",
             "/qz定时",
             "qz定时",
             "/qz任务",
