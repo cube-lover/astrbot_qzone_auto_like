@@ -23,7 +23,8 @@ from astrbot.api.event import filter, AstrMessageEvent
 
 
 @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
-async def _qz_capture_aiocqhttp_bot(event: AstrMessageEvent, *args, **kwargs):
+async def _qz_capture_aiocqhttp_bot(*args, **kwargs):
+    event = args[0] if args else None
     """Capture Napcat CQHttp client for cookie auto-fetch.
 
     Note: This is a module-level handler; it will only set the client on the plugin instance
