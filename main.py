@@ -1825,7 +1825,7 @@ class QzoneAutoLikePlugin(Star):
                 bool(getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled),
             )
             if self.my_qq and getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled:
-                new_cookie = await self.cookie_fetcher.refresh(reason="/post missing cookie")
+                new_cookie = await self.cookie_fetcher.refresh(reason="/post missing cookie", event=event)
                 if new_cookie:
                     self.cookie = new_cookie
             if not self.cookie:
@@ -1910,7 +1910,7 @@ class QzoneAutoLikePlugin(Star):
                 bool(getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled),
             )
             if self.my_qq and getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled:
-                new_cookie = await self.cookie_fetcher.refresh(reason="/delete missing cookie")
+                new_cookie = await self.cookie_fetcher.refresh(reason="/delete missing cookie", event=event)
                 if new_cookie:
                     self.cookie = new_cookie
             if not self.cookie:
@@ -2881,7 +2881,7 @@ class QzoneAutoLikePlugin(Star):
                 bool(self.cookie_fetcher.enabled),
             )
             if self.my_qq and self.cookie_fetcher.enabled:
-                new_cookie = await self.cookie_fetcher.refresh(reason="qz_delete missing cookie")
+                new_cookie = await self.cookie_fetcher.refresh(reason="qz_delete missing cookie", event=event)
                 if new_cookie:
                     self.cookie = new_cookie
             if not self.cookie:
@@ -2950,7 +2950,7 @@ class QzoneAutoLikePlugin(Star):
                 bool(self.cookie_fetcher.enabled),
             )
             if self.my_qq and self.cookie_fetcher.enabled:
-                new_cookie = await self.cookie_fetcher.refresh(reason="qz_post missing cookie")
+                new_cookie = await self.cookie_fetcher.refresh(reason="qz_post missing cookie", event=event)
                 if new_cookie:
                     self.cookie = new_cookie
             if not self.cookie:
