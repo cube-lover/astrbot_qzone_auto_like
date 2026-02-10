@@ -199,7 +199,7 @@ class _QzoneClient:
     name="qzone_auto_like",
     author="AI",
     desc="自动侦测并点赞QQ空间动态（强后台日志版）",
-    version="1.0.0",
+    version="1.6.3",
     repo="",
 )
 class QzoneAutoLikePlugin(Star):
