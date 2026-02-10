@@ -263,21 +263,27 @@ class QzoneAutoLikePlugin(Star):
             self._post_store_max = 0
         self._load_recent_posts()
 
-        # Scheduler initialization (only for AI timed posting/deletion).
+        # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
+        self._auto_seen: dict[str, float] = {}
+
+        self.my_qq = str(self.config.get("my_qq", "")).strip()
+        self.cookie = str(self.config.get("cookie", "")).strip()
+        self._target_qq = str(self.config.get("target_qq", "")).strip()
+
+        # Scheduler initialization (only for AI timed posting/deletion). Must be after my_qq/cookie is loaded.
         try:
             async def _notify(kind: str, msg: str) -> None:
-                # keep old notify behavior in main
                 enabled = self.ai_post_notify_enabled if kind == "post" else self.ai_post_delete_notify_enabled
                 mode = self.ai_post_notify_mode if kind == "post" else self.ai_post_delete_notify_mode
                 to_private = self.ai_post_notify_private_qq if kind == "post" else self.ai_post_delete_notify_private_qq
                 to_group = self.ai_post_notify_group_id if kind == "post" else self.ai_post_delete_notify_group_id
+
                 if (not enabled) or mode == "off":
-                    return
-                if mode not in ("error", "all"):
                     return
                 text = str(msg or "").strip()
                 if not text:
                     return
+
                 try:
                     if to_private:
                         if hasattr(self.context, "send_private_message"):
@@ -303,13 +309,6 @@ class QzoneAutoLikePlugin(Star):
         except Exception as e:
             logger.warning(f"[Qzone] scheduler init failed: {e}")
             self._scheduler = None
-
-        # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
-        self._auto_seen: dict[str, float] = {}
-
-        self.my_qq = str(self.config.get("my_qq", "")).strip()
-        self.cookie = str(self.config.get("cookie", "")).strip()
-        self._target_qq = str(self.config.get("target_qq", "")).strip()
         self.poll_interval = int(self.config.get("poll_interval_sec", 20))
         # 风控友好：默认放慢点赞间隔（可在配置里改回去）
         self.delay_min = int(self.config.get("like_delay_min_sec", 12))
