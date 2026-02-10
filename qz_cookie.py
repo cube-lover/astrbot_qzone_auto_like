@@ -8,6 +8,10 @@ class QzCookieAutoFetcher:
     """Auto fetch cookies for user.qzone.qq.com from Napcat (AIOCQHTTP).
 
     This class is intentionally isolated. It never throws and never logs full cookies.
+
+    Key design (copied from proven pattern):
+    - Capture a CQHttp client (event.bot) from AIOCQHTTP platform events when possible.
+    - When cookie is empty, refresh() uses that client to fetch cookies.
     """
 
     DOMAIN = "user.qzone.qq.com"
@@ -17,27 +21,38 @@ class QzCookieAutoFetcher:
         self.cooldown_sec = max(5, int(cooldown_sec or 120))
         self._client: Any = None
         self._last_fetch_ts = 0.0
+        self._last_probe_ts = 0.0
 
     def capture_bot(self, event: Any) -> None:
-        if self._client is not None:
-            return
         if event is None:
             return
 
         bot = getattr(event, "bot", None)
         if bot is None:
-            # Try a few common nests used by different AstrBot adapter events.
             adapter = getattr(event, "adapter", None)
             if adapter is not None:
                 bot = getattr(adapter, "bot", None)
-            if bot is None:
-                platform = getattr(event, "platform", None)
-                if platform is not None:
-                    bot = getattr(platform, "bot", None)
+        if bot is None:
+            platform = getattr(event, "platform", None)
+            if platform is not None:
+                bot = getattr(platform, "bot", None)
 
         if bot is None:
+            # Debug-only probe (rate-limited): helps confirm what the event actually carries.
+            now = time.time()
+            if now - float(self._last_probe_ts or 0.0) > 120.0:
+                self._last_probe_ts = now
+                try:
+                    attrs = []
+                    for k in ("bot", "adapter", "platform", "platform_adapter", "star", "context"):
+                        if hasattr(event, k):
+                            attrs.append(k)
+                    logger.debug(f"[Qzone] auto cookie: capture_bot no client on event; attrs={attrs}")
+                except Exception:
+                    pass
             return
 
+        # Always accept latest client; it's cheap and avoids missing capture windows.
         self._client = bot
 
     async def refresh(self, *, reason: str = "") -> Optional[str]:
