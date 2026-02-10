@@ -370,24 +370,29 @@ class QzoneAutoLikePlugin(Star):
         async with self._ai_notify_lock:
             if to_private:
                 try:
-                    if hasattr(self.context, "send_private_message"):
+                    # Prefer Star APIs when available.
+                    if hasattr(self, "send_private_message"):
+                        await self.send_private_message(user_id=str(to_private), message=text)
+                    elif hasattr(self.context, "send_private_message"):
                         await self.context.send_private_message(user_id=str(to_private), message=text)
                     elif hasattr(self.context, "send_private"):
                         await self.context.send_private(user_id=str(to_private), message=text)
                     else:
-                        raise RuntimeError("context missing send_private_message")
+                        raise RuntimeError("no send_private_message API")
                     sent = True
                 except Exception as e:
                     logger.warning(f"[Qzone] AI notify private failed kind={kind}: {e}")
 
             if to_group:
                 try:
-                    if hasattr(self.context, "send_group_message"):
+                    if hasattr(self, "send_group_message"):
+                        await self.send_group_message(group_id=str(to_group), message=text)
+                    elif hasattr(self.context, "send_group_message"):
                         await self.context.send_group_message(group_id=str(to_group), message=text)
                     elif hasattr(self.context, "send_group"):
                         await self.context.send_group(group_id=str(to_group), message=text)
                     else:
-                        raise RuntimeError("context missing send_group_message")
+                        raise RuntimeError("no send_group_message API")
                     sent = True
                 except Exception as e:
                     logger.warning(f"[Qzone] AI notify group failed kind={kind}: {e}")
@@ -2823,7 +2828,11 @@ class QzoneAutoLikePlugin(Star):
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 删除说说异常: {e}")
             logger.error(traceback.format_exc())
-            yield event.plain_result(f"❌ 异常：{e}")
+            try:
+                await self._send_ai_notify("delete", f"❌ 异常：{e}")
+            except Exception:
+                pass
+            yield event.plain_result("FAIL")
 
     @filter.llm_tool(name="sleep_seconds")
     async def llm_tool_sleep_seconds(self, event: AstrMessageEvent = None, sec: float = 0):
@@ -2887,7 +2896,11 @@ class QzoneAutoLikePlugin(Star):
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 发说说异常: {e}")
             logger.error(traceback.format_exc())
-            yield event.plain_result(f"❌ 异常：{e}")
+            try:
+                await self._send_ai_notify("post", f"❌ 异常：{e}")
+            except Exception:
+                pass
+            yield event.plain_result("FAIL")
 
     @filter.on_llm_request(priority=5)
     async def on_llm_request(self, event: AstrMessageEvent, req, *args):
