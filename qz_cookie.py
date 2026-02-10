@@ -56,11 +56,16 @@ class QzCookieAutoFetcher:
         self._client = bot
 
     async def refresh(self, *, reason: str = "") -> Optional[str]:
-        if not self.enabled or not self._client:
+        if not self.enabled:
+            logger.info(f"[Qzone] auto cookie refresh skipped: disabled (reason={reason})")
+            return None
+        if not self._client:
+            logger.info(f"[Qzone] auto cookie refresh skipped: no client captured yet (reason={reason})")
             return None
 
         now = time.time()
         if now - float(self._last_fetch_ts or 0.0) < float(self.cooldown_sec):
+            logger.info(f"[Qzone] auto cookie refresh skipped: cooldown (reason={reason})")
             return None
         self._last_fetch_ts = now
 

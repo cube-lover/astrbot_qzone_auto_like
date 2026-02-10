@@ -2852,6 +2852,12 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
+            logger.info(
+                "[Qzone] llm_tool delete missing my_qq/cookie | my_qq=%s cookie_empty=%s auto_fetch=%s",
+                bool(self.my_qq),
+                (not self.cookie),
+                bool(self.cookie_fetcher.enabled),
+            )
             if self.my_qq and self.cookie_fetcher.enabled:
                 new_cookie = await self.cookie_fetcher.refresh(reason="qz_delete missing cookie")
                 if new_cookie:
@@ -2915,6 +2921,12 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
+            logger.info(
+                "[Qzone] llm_tool post missing my_qq/cookie | my_qq=%s cookie_empty=%s auto_fetch=%s",
+                bool(self.my_qq),
+                (not self.cookie),
+                bool(self.cookie_fetcher.enabled),
+            )
             if self.my_qq and self.cookie_fetcher.enabled:
                 new_cookie = await self.cookie_fetcher.refresh(reason="qz_post missing cookie")
                 if new_cookie:
