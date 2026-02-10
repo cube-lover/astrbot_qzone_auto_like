@@ -1446,8 +1446,7 @@ class QzoneAutoLikePlugin(Star):
     @filter.command("qz任务")
     @filter.command("qzone定时")
     async def ai_post_ctl(self, event: AstrMessageEvent):
-        yield event.plain_result("已移除‘定时任务’的大语言模型/未来任务相关功能（避免被系统 tool_loop 抢走）。如需定时发布请使用外部‘未来任务’功能或改用服务器侧 cron。")
-        return
+        # Local scheduler control for AI post/delete. Supports: 开启/关闭/间隔/删后/列表.
 
         raw = (event.message_str or "").strip()
         text = raw
