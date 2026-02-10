@@ -1408,10 +1408,9 @@ class QzoneAutoLikePlugin(Star):
         yield event.plain_result("\n".join([s for s in lines if s and not s.endswith('=')]))
 
     @filter.event_message_type(filter.EventMessageType.ALL)
-    @filter.event_message_type(filter.EventMessageType.ALL)
     async def _intercept_local_scheduler_cmds(self, event: AstrMessageEvent):
-        # Intercept scheduler commands early to prevent external tool-loop agents from hijacking them.
-        # Also provide a fallback path for custom command prefixes (e.g. users replace default "/" with "，").
+        # Intercept a few high-signal phrases early to prevent tool-loop agents from replying without
+        # actually calling qz_delete/qz_post.
         raw = (event.message_str or "").strip()
         if not raw:
             return
@@ -1425,19 +1424,53 @@ class QzoneAutoLikePlugin(Star):
         if not txt:
             return
 
-        for p in (
-            "qz定时",
-            "qz任务",
-            "qzone定时",
-        ):
+        # Hard intercept: delete latest post phrases
+        # Only trigger when user clearly intends deletion.
+        tnorm = "".join(ch for ch in txt.strip().lower() if ch not in ("\u200b", "\ufeff"))
+        if ("删除" in tnorm or "删" in tnorm) and ("刚刚" in tnorm or "刚才" in tnorm or "最新" in tnorm or "最近" in tnorm):
+            # Execute delete latest directly (no tool-loop talk).
+            try:
+                if not self.my_qq or not self.cookie:
+                    await event.send(event.plain_result("配置缺失：my_qq 或 cookie 为空"))
+                else:
+                    poster = QzonePoster(self.my_qq, self.cookie)
+                    status, result = await asyncio.to_thread(poster.delete_latest)
+                    logger.info(
+                        "[Qzone] intercept delete_latest 返回 | status=%s ok=%s code=%s msg=%s head=%s",
+                        status,
+                        getattr(result, "ok", False),
+                        getattr(result, "code", ""),
+                        getattr(result, "message", ""),
+                        getattr(result, "raw_head", ""),
+                    )
+                    if status == 200 and getattr(result, "ok", False):
+                        # stay quiet on success
+                        pass
+                    else:
+                        hint = getattr(result, "message", "") or "删除失败（可能 cookie/风控/验证码/权限）"
+                        await event.send(event.plain_result(f"删除失败：status={status} code={getattr(result,'code','')} msg={hint}"))
+            except Exception as e:
+                logger.error(f"[Qzone] intercept delete_latest 异常: {e}")
+                logger.error(traceback.format_exc())
+                try:
+                    await event.send(event.plain_result(f"删除异常：{e}"))
+                except Exception:
+                    pass
+
+            try:
+                event.stop_event()
+            except Exception:
+                pass
+            return
+
+        # Existing local scheduler commands
+        for p in ("qz定时", "qz任务", "qzone定时"):
             if txt.startswith(p):
                 try:
                     setattr(event, "_qz_stop_after", True)
                 except Exception:
                     pass
 
-                # If a custom prefix was used, command parser may not trigger @filter.command.
-                # In that case, call handlers directly and stop propagation.
                 if used_prefix:
                     if txt.startswith("定时任务列表") or txt.startswith("定时说说任务列表"):
                         async for r in self.cron_list_local(event):
