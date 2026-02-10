@@ -19,7 +19,7 @@ from urllib.parse import quote
 import requests
 
 from astrbot.api.star import Star, register
-from astrbot.api.event import filter, AstrMessageEvent, MessageChain
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import ToolSet
 from astrbot.api import logger
 
@@ -372,8 +372,7 @@ class QzoneAutoLikePlugin(Star):
             if to_private:
                 try:
                     umo = f"aiocqhttp:private:{str(to_private)}"
-                    chain = MessageChain().plain(text)
-                    await self.context.send_message(umo, chain)
+                    await self.context.send_message(umo, text)
                     sent = True
                 except Exception as e:
                     logger.warning(f"[Qzone] AI notify private failed kind={kind}: {e}")
@@ -381,8 +380,7 @@ class QzoneAutoLikePlugin(Star):
             if to_group:
                 try:
                     umo = f"aiocqhttp:group:{str(to_group)}"
-                    chain = MessageChain().plain(text)
-                    await self.context.send_message(umo, chain)
+                    await self.context.send_message(umo, text)
                     sent = True
                 except Exception as e:
                     logger.warning(f"[Qzone] AI notify group failed kind={kind}: {e}")
