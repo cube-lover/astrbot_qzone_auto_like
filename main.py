@@ -1348,8 +1348,19 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
-            logger.error("[Qzone] 配置缺失：my_qq 或 cookie 为空，任务无法启动")
-            return
+            logger.info(
+                "[Qzone] worker missing my_qq/cookie | my_qq=%s cookie_empty=%s auto_fetch=%s",
+                bool(self.my_qq),
+                (not self.cookie),
+                bool(getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled),
+            )
+            if self.my_qq and getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled and not self.cookie:
+                new_cookie = await self.cookie_fetcher.refresh(reason="worker missing cookie", event=None)
+                if new_cookie:
+                    self.cookie = new_cookie
+            if not self.my_qq or not self.cookie:
+                logger.error("[Qzone] 配置缺失：my_qq 或 cookie 为空，任务无法启动")
+                return
 
         try:
             client = _QzoneClient(self.my_qq, self.cookie)
