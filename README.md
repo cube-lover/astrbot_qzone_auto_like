@@ -1,19 +1,19 @@
-# QQ空间秒赞插件
+# QQ空间自动点赞（强日志版）
 
-AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）。
+AstrBot 插件：自动侦测 QQ 空间动态并点赞。
 
-> 安全提示：本插件需要你自己提供 QQ 空间 Cookie（登录态）。请勿把 Cookie 提交到仓库或发给他人。
+一句话：你负责把 Cookie 填好，它负责在后台“刷到就点”，并把每一步发生了什么写进日志，方便你定位 `cookie失效/风控/验证码` 等问题。
 
-## 功能
+> 安全提示：本插件需要你自己提供 QQ 空间 Cookie（登录态）。不要把 Cookie 提交到仓库，也别发到群里。
 
-- 后台轮询抓取 QQ 空间 feeds
-- 发现新的 mood 动态后自动点赞
-- 支持手动指令：输入一次命令立即执行一轮点赞（不必等待轮询）
-- 在 AstrBot 后台日志输出详细调试信息（便于定位：cookie失效/风控/验证码等）
-- 去重：自动轮询启用“内存去重(带TTL，不落盘)”，避免每轮重复点同一条；手动 `/点赞` 默认不去重
-- WebUI 配置开关：`enabled` / `auto_start`
-- 可选配置默认目标空间：`target_qq`
-- 保留命令控制：`/qz_start`、`/qz_stop`、`/qz_status`、`/点赞`、`/post`、`/genpost`
+## 亮点
+
+- 强日志：请求状态码、返回片段(head)、命中数量、失败原因一目了然
+- 后台轮询：按间隔持续扫描 feeds，发现新 mood 自动点赞
+- 去重策略：自动轮询使用“内存去重 + TTL”（避免重复点赞刷风控）；手动 `/点赞` 默认不去重
+- 一键启停：WebUI 开关 `enabled/auto_start` + 命令 `/qz_start /qz_stop /qz_status`
+- 可选目标空间：默认自己的空间，也支持指定 `target_qq` 或通过 `/点赞 @某人` 临时切换
+- 附带工具：`/post` 发文字说说，`/genpost` 用 LLM 生成后再发（可选）
 
 ## 效果截图
 
@@ -41,9 +41,9 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 
 ## 配置项（WebUI）
 
-必填：
-- `my_qq`：空间所属 QQ 号
-- `cookie`：QQ 空间 Cookie（必须包含 `p_skey=...`）
+必填（不填就跑不起来）：
+- `my_qq`：当前登录 QQ 号（用于 referer/opuin）
+- `cookie`：QQ 空间 Cookie（至少包含 `p_skey=...`，否则无法计算 `g_tk`）
 
 ### 如何获取 Cookie（Chrome / Edge）
 
@@ -62,8 +62,8 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 - 失效后重新按以上步骤复制最新 Cookie
 
 开关：
-- `enabled`：总开关（相当于按钮）
-- `auto_start`：Bot 启动完成后，若 enabled=true 则自动启动后台任务
+- `enabled`：是否启用后台轮询（总开关）
+- `auto_start`：Bot 启动后若 enabled=true 自动启动（适合常驻）
 
 调参：
 - `poll_interval_sec`：轮询间隔（秒）
@@ -86,9 +86,15 @@ AI 自动发说说（可选）：
 - `ai_post_daily_prompt`：daily 模式提示词
 - `ai_post_delete_after_min`：发布后多少分钟自动删除（0=不删）
 
-通知（2026-02 现状说明）：
-- 由于不同 AstrBot/适配器版本对“跨会话主动发消息”的 API/MessageType 支持不一致，本插件默认不再对“发说说/删说说成功”做主动推送，避免刷屏。
-- 若需要只在失败时提醒，建议结合 AstrBot 的「未来任务」侧的结果回传或查看后台日志。
+工具调用回显（刷屏控制）：
+- `llm_tool_reply_mode`：控制 `qz_post/qz_delete` 工具调用后是否在当前会话回消息
+  - `all`：成功/失败都回（会看到 `OK` / `FAIL ...`）
+  - `error`：仅失败回（默认，成功静默）
+  - `off`：全部静默（只看后台日志）
+
+通知（跨会话推送，2026-02 现状说明）：
+- 由于不同 AstrBot/适配器版本对“跨会话主动发消息”的 API/MessageType 支持不一致，本插件默认不对“成功”做主动推送，避免刷屏。
+- 失败排查建议优先看后台日志（`status/code/msg/head`）。
 
 可选：
 - `target_qq`：默认目标QQ空间（留空=自己的空间；也可用 `/点赞 ...` 临时切换并立即执行）
