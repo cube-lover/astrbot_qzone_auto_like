@@ -5,7 +5,7 @@ import re
 import time
 import traceback
 from pathlib import Path
-from typing import Optional, Set, Tuple
+from typing import Optional, Set, Tuple, List, Dict, Any
 
 from .qzone_post import QzonePoster
 from .qzone_sleep import sleep_seconds
@@ -263,6 +263,13 @@ class QzoneAutoLikePlugin(Star):
             self._post_store_max = 0
         self._load_recent_posts()
 
+        # Pending delete queue for AI timed posts (persist across restart).
+        # Each item: {"tid": str, "due_ts": float, "created_ts": float}
+        self._pending_delete_path = Path(__file__).parent / "data" / "pending_deletes.json"
+        self._pending_deletes: List[Dict[str, Any]] = []
+        self._pending_delete_lock = asyncio.Lock()
+        self._load_pending_deletes()
+
         # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
         self._auto_seen: dict[str, float] = {}
 
@@ -410,6 +417,120 @@ class QzoneAutoLikePlugin(Star):
             )
         except Exception as e:
             logger.warning(f"[Qzone] 保存 recent_posts 失败: {e}")
+
+    def _load_pending_deletes(self) -> None:
+        try:
+            if not self._pending_delete_path.exists():
+                self._pending_deletes = []
+                return
+            data = json.loads(self._pending_delete_path.read_text(encoding="utf-8"))
+            if not isinstance(data, list):
+                self._pending_deletes = []
+                return
+            items: List[Dict[str, Any]] = []
+            for it in data:
+                if not isinstance(it, dict):
+                    continue
+                tid = str(it.get("tid") or "").strip()
+                due_ts = float(it.get("due_ts") or 0)
+                created_ts = float(it.get("created_ts") or 0)
+                if not tid or due_ts <= 0:
+                    continue
+                items.append({"tid": tid, "due_ts": due_ts, "created_ts": created_ts or time.time()})
+            # keep sorted by due
+            items.sort(key=lambda x: float(x.get("due_ts") or 0))
+            self._pending_deletes = items
+        except Exception as e:
+            logger.warning(f"[Qzone] 加载 pending_deletes 失败: {e}")
+            self._pending_deletes = []
+
+    def _save_pending_deletes(self) -> None:
+        try:
+            self._pending_delete_path.parent.mkdir(parents=True, exist_ok=True)
+            self._pending_delete_path.write_text(
+                json.dumps(self._pending_deletes, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"[Qzone] 保存 pending_deletes 失败: {e}")
+
+    async def _queue_delete(self, tid: str, delete_after_min: int) -> None:
+        t = str(tid or "").strip()
+        if not t or delete_after_min <= 0:
+            return
+        now = time.time()
+        due = now + delete_after_min * 60
+        async with self._pending_delete_lock:
+            # de-dup by tid (keep earliest due)
+            found = False
+            for it in self._pending_deletes:
+                if str(it.get("tid") or "") == t:
+                    old_due = float(it.get("due_ts") or 0)
+                    if old_due <= 0 or due < old_due:
+                        it["due_ts"] = due
+                    found = True
+                    break
+            if not found:
+                self._pending_deletes.append({"tid": t, "due_ts": due, "created_ts": now})
+            self._pending_deletes.sort(key=lambda x: float(x.get("due_ts") or 0))
+            self._save_pending_deletes()
+
+    async def _drain_due_deletes(self, poster: QzonePoster) -> int:
+        """Try deleting all due items. Returns number deleted successfully."""
+        now = time.time()
+        due_items: List[Dict[str, Any]] = []
+        async with self._pending_delete_lock:
+            if not self._pending_deletes:
+                return 0
+            keep: List[Dict[str, Any]] = []
+            for it in self._pending_deletes:
+                try:
+                    due_ts = float(it.get("due_ts") or 0)
+                except Exception:
+                    due_ts = 0
+                if due_ts > 0 and due_ts <= now:
+                    due_items.append(it)
+                else:
+                    keep.append(it)
+            # tentatively remove due items; if delete fails we will requeue with backoff below
+            self._pending_deletes = keep
+            self._save_pending_deletes()
+
+        ok_count = 0
+        for it in due_items:
+            tid = str(it.get("tid") or "").strip()
+            if not tid:
+                continue
+            try:
+                ds, dr = await asyncio.to_thread(poster.delete_by_tid, tid)
+                ok = bool(ds == 200 and getattr(dr, "ok", False))
+                logger.info(
+                    "[Qzone] pending delete 执行 | status=%s ok=%s code=%s msg=%s tid=%s",
+                    ds,
+                    getattr(dr, "ok", False),
+                    getattr(dr, "code", ""),
+                    getattr(dr, "message", ""),
+                    tid,
+                )
+                if ok:
+                    ok_count += 1
+                    continue
+
+                # requeue failed delete with small backoff (avoid tight loop)
+                async with self._pending_delete_lock:
+                    backoff_due = time.time() + 60
+                    self._pending_deletes.append({"tid": tid, "due_ts": backoff_due, "created_ts": float(it.get("created_ts") or time.time())})
+                    self._pending_deletes.sort(key=lambda x: float(x.get("due_ts") or 0))
+                    self._save_pending_deletes()
+            except Exception as e:
+                logger.warning(f"[Qzone] pending delete 异常 tid={tid}: {e}")
+                async with self._pending_delete_lock:
+                    backoff_due = time.time() + 60
+                    self._pending_deletes.append({"tid": tid, "due_ts": backoff_due, "created_ts": float(it.get("created_ts") or time.time())})
+                    self._pending_deletes.sort(key=lambda x: float(x.get("due_ts") or 0))
+                    self._save_pending_deletes()
+
+        return ok_count
 
     def _remember_post(self, tid: str, text: str) -> None:
         t = (tid or "").strip()
@@ -694,27 +815,7 @@ class QzoneAutoLikePlugin(Star):
                 delete_after = int(self.config.get("ai_post_delete_after_min", 0) or 0)
                 tid = getattr(result, "tid", "")
                 if status == 200 and result.ok and delete_after > 0 and tid:
-                    async def _del_later() -> None:
-                        await asyncio.sleep(delete_after * 60)
-                        ds, dr = await asyncio.to_thread(poster.delete_by_tid, tid)
-                        logger.info(
-                            "[Qzone] fixed delete 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
-                            ds,
-                            dr.ok,
-                            dr.code,
-                            dr.message,
-                            tid,
-                        )
-
-                        ok2 = bool(ds == 200 and dr.ok)
-                        if ok2 and self.ai_post_delete_notify_mode == "all":
-                            await _ai_notify("delete", f"定时删说说成功 tid={tid}")
-                        if (not ok2) and self.ai_post_delete_notify_mode in ("error", "all"):
-                            await _ai_notify(
-                                "delete",
-                                f"定时删说说失败 status={ds} code={getattr(dr, 'code', '')} msg={getattr(dr, 'message', '')} tid={tid}",
-                            )
-                    asyncio.create_task(_del_later())
+                    await self._queue_delete(str(tid), delete_after)
                 return
 
             provider_id = str(self.config.get("ai_post_provider_id", "") or "").strip()
@@ -799,28 +900,7 @@ class QzoneAutoLikePlugin(Star):
             delete_after = int(self.config.get("ai_post_delete_after_min", 0) or 0)
             tid = getattr(result, "tid", "")
             if status == 200 and result.ok and delete_after > 0 and tid:
-                async def _del_later() -> None:
-                    await asyncio.sleep(delete_after * 60)
-                    ds, dr = await asyncio.to_thread(poster.delete_by_tid, tid)
-                    logger.info(
-                        "[Qzone] AI delete 返回 | status=%s ok=%s code=%s msg=%s tid=%s",
-                        ds,
-                        dr.ok,
-                        dr.code,
-                        dr.message,
-                        tid,
-                    )
-
-                    # Optional notify
-                    ok = bool(ds == 200 and dr.ok)
-                    if ok and self.ai_post_delete_notify_mode == "all":
-                        await _ai_notify("delete", f"AI删说说成功 tid={tid}")
-                    if (not ok) and self.ai_post_delete_notify_mode in ("error", "all"):
-                        await _ai_notify(
-                            "delete",
-                            f"AI删说说失败 status={ds} code={getattr(dr, 'code', '')} msg={getattr(dr, 'message', '')} tid={tid}",
-                        )
-                asyncio.create_task(_del_later())
+                await self._queue_delete(str(tid), delete_after)
 
         # daily_time: HH:MM
         def _seconds_until(hhmm: str) -> Optional[int]:
@@ -841,31 +921,76 @@ class QzoneAutoLikePlugin(Star):
 
         next_daily_sleep = _seconds_until(daily_time) if daily_time else None
 
+        def _next_interval_due_ts() -> float:
+            # Use last-run as anchor when available; otherwise start immediately.
+            last = float(self.config.get("ai_post_last_run_ts", 0) or 0)
+            if last <= 0:
+                return time.time()
+            return last + interval_min * 60
+
+        def _next_daily_due_ts() -> Optional[float]:
+            if not daily_time:
+                return None
+            sec = _seconds_until(daily_time)
+            if sec is None:
+                return None
+            return time.time() + sec
+
         while not self._ai_stop.is_set():
             try:
-                # interval first
+                # Always attempt draining due deletes even if posting is paused.
+                try:
+                    drained = await self._drain_due_deletes(poster)
+                    if drained:
+                        logger.info("[Qzone] pending deletes drained=%s", drained)
+                except Exception as e:
+                    logger.warning(f"[Qzone] drain pending deletes failed: {e}")
+
+                now = time.time()
+                next_candidates: List[float] = []
+
                 if interval_min > 0:
+                    next_candidates.append(_next_interval_due_ts())
+
+                dts = _next_daily_due_ts()
+                if dts is not None:
+                    next_candidates.append(dts)
+
+                if not next_candidates:
+                    # nothing scheduled; check deletes periodically
+                    await asyncio.wait_for(self._ai_stop.wait(), timeout=30)
+                    continue
+
+                next_due = min(next_candidates)
+                sleep_s = max(0.0, next_due - now)
+                # small cap so we still drain deletes even if far future
+                sleep_s = min(sleep_s, 30.0)
+                if sleep_s > 0:
+                    await asyncio.wait_for(self._ai_stop.wait(), timeout=sleep_s)
+                    continue
+
+                # time to run something; prefer whichever is due now
+                ran = False
+                # interval due?
+                if interval_min > 0 and now >= _next_interval_due_ts() - 0.5:
                     prompt = str(self.config.get("ai_post_prompt", "") or "").strip()
                     if prompt:
                         await _gen_and_post(prompt)
-                    # sleep with jitter
-                    jitter = random.random() * 3.0
-                    await asyncio.wait_for(self._ai_stop.wait(), timeout=interval_min * 60 + jitter)
-                    continue
+                    ran = True
 
-                # daily mode
-                if daily_time and next_daily_sleep is not None:
-                    await asyncio.wait_for(self._ai_stop.wait(), timeout=next_daily_sleep)
-                    if self._ai_stop.is_set():
-                        break
-                    prompt = str(self.config.get("ai_post_daily_prompt", "") or "").strip()
-                    if prompt:
-                        await _gen_and_post(prompt)
-                    next_daily_sleep = _seconds_until(daily_time)
-                    continue
+                # daily due?
+                if daily_time and (_seconds_until(daily_time) is not None):
+                    # If daily due is in the past/now within 60s window, run it.
+                    dd = _next_daily_due_ts()
+                    if dd is not None and (time.time() >= dd - 0.5):
+                        prompt = str(self.config.get("ai_post_daily_prompt", "") or "").strip()
+                        if prompt:
+                            await _gen_and_post(prompt)
+                        ran = True
 
-                # fallback
-                await asyncio.wait_for(self._ai_stop.wait(), timeout=60)
+                if not ran:
+                    await asyncio.wait_for(self._ai_stop.wait(), timeout=1)
+
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
