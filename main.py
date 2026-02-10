@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Set, Tuple, List, Dict, Any
 
 from .qzone_post import QzonePoster
+from .qz_scheduler import QzScheduler
 from .qzone_sleep import sleep_seconds
 from .qzone_comment import QzoneCommenter
 from .qzone_del_comment import QzoneCommentDeleter
@@ -214,9 +215,8 @@ class QzoneAutoLikePlugin(Star):
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
 
-        # AI 定时发说说任务（不依赖群聊名单；按配置开关）
-        self._ai_task: Optional[asyncio.Task] = None
-        self._ai_stop = asyncio.Event()
+        # AI 定时发说说任务：moved to QzScheduler.
+        self._scheduler: Optional[QzScheduler] = None
 
         # AI post notifications (optional; default off to avoid spamming groups)
         self.ai_post_notify_enabled = bool(self.config.get("ai_post_notify_enabled", False))
@@ -263,12 +263,46 @@ class QzoneAutoLikePlugin(Star):
             self._post_store_max = 0
         self._load_recent_posts()
 
-        # Pending delete queue for AI timed posts (persist across restart).
-        # Each item: {"tid": str, "due_ts": float, "created_ts": float}
-        self._pending_delete_path = Path(__file__).parent / "data" / "pending_deletes.json"
-        self._pending_deletes: List[Dict[str, Any]] = []
-        self._pending_delete_lock = asyncio.Lock()
-        self._load_pending_deletes()
+        # Scheduler initialization (only for AI timed posting/deletion).
+        try:
+            async def _notify(kind: str, msg: str) -> None:
+                # keep old notify behavior in main
+                enabled = self.ai_post_notify_enabled if kind == "post" else self.ai_post_delete_notify_enabled
+                mode = self.ai_post_notify_mode if kind == "post" else self.ai_post_delete_notify_mode
+                to_private = self.ai_post_notify_private_qq if kind == "post" else self.ai_post_delete_notify_private_qq
+                to_group = self.ai_post_notify_group_id if kind == "post" else self.ai_post_delete_notify_group_id
+                if (not enabled) or mode == "off":
+                    return
+                if mode not in ("error", "all"):
+                    return
+                text = str(msg or "").strip()
+                if not text:
+                    return
+                try:
+                    if to_private:
+                        if hasattr(self.context, "send_private_message"):
+                            await self.context.send_private_message(user_id=str(to_private), message=text)
+                        elif hasattr(self.context, "send_private"):
+                            await self.context.send_private(user_id=str(to_private), message=text)
+                    if to_group:
+                        if hasattr(self.context, "send_group_message"):
+                            await self.context.send_group_message(group_id=str(to_group), message=text)
+                        elif hasattr(self.context, "send_group"):
+                            await self.context.send_group(group_id=str(to_group), message=text)
+                except Exception as e:
+                    logger.warning(f"[Qzone] AI notify failed kind={kind}: {e}")
+
+            self._scheduler = QzScheduler(
+                context=self.context,
+                config=self.config,
+                my_qq=self.my_qq,
+                cookie=self.cookie,
+                data_dir=Path(__file__).parent / "data",
+                notify_cb=_notify,
+            )
+        except Exception as e:
+            logger.warning(f"[Qzone] scheduler init failed: {e}")
+            self._scheduler = None
 
         # 仅用于自动轮询的“内存去重”（不落盘）：避免每轮重复点同一条。
         self._auto_seen: dict[str, float] = {}
