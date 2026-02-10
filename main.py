@@ -20,6 +20,21 @@ import requests
 
 from astrbot.api.star import Star, register
 from astrbot.api.event import filter, AstrMessageEvent
+
+
+@filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
+async def _qz_capture_aiocqhttp_bot(event: AstrMessageEvent):
+    """Capture Napcat CQHttp client for cookie auto-fetch.
+
+    Note: This is a module-level handler; it will only set the client on the plugin instance
+    when possible.
+    """
+    try:
+        plugin = getattr(event, "star", None)
+        if plugin is not None and hasattr(plugin, "cookie_fetcher"):
+            plugin.cookie_fetcher.capture_bot(event)
+    except Exception:
+        pass
 from astrbot.api import ToolSet
 from astrbot.api import logger
 
@@ -209,6 +224,9 @@ class QzoneAutoLikePlugin(Star):
     def __init__(self, context, config=None):
         super().__init__(context)
         self.config = config or {}
+
+        # Ensure attributes referenced during hot-reload terminate() always exist.
+        self._ai_task = None
 
         # 运行时：目标空间（若为空则监控/点赞自己的空间）
         self._target_qq: str = ""
@@ -3157,10 +3175,14 @@ class QzoneAutoLikePlugin(Star):
             except Exception:
                 pass
 
-        if self._ai_task is not None and not self._ai_task.done():
-            self._ai_stop.set()
+        ai_task = getattr(self, "_ai_task", None)
+        if ai_task is not None and (not ai_task.done()):
             try:
-                await asyncio.wait_for(self._ai_task, timeout=10)
+                self._ai_stop.set()
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(ai_task, timeout=10)
             except Exception:
                 pass
 

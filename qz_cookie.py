@@ -23,9 +23,21 @@ class QzCookieAutoFetcher:
             return
         if event is None:
             return
+
         bot = getattr(event, "bot", None)
         if bot is None:
+            # Try a few common nests used by different AstrBot adapter events.
+            adapter = getattr(event, "adapter", None)
+            if adapter is not None:
+                bot = getattr(adapter, "bot", None)
+            if bot is None:
+                platform = getattr(event, "platform", None)
+                if platform is not None:
+                    bot = getattr(platform, "bot", None)
+
+        if bot is None:
             return
+
         self._client = bot
 
     async def refresh(self, *, reason: str = "") -> Optional[str]:
