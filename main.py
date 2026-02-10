@@ -1818,8 +1818,19 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
-            return
+            logger.info(
+                "[Qzone] /post missing my_qq/cookie | my_qq=%s cookie_empty=%s auto_fetch=%s",
+                bool(self.my_qq),
+                (not self.cookie),
+                bool(getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled),
+            )
+            if self.my_qq and getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled:
+                new_cookie = await self.cookie_fetcher.refresh(reason="/post missing cookie")
+                if new_cookie:
+                    self.cookie = new_cookie
+            if not self.cookie:
+                yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+                return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
@@ -1892,8 +1903,19 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
-            return
+            logger.info(
+                "[Qzone] /delete missing my_qq/cookie | my_qq=%s cookie_empty=%s auto_fetch=%s",
+                bool(self.my_qq),
+                (not self.cookie),
+                bool(getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled),
+            )
+            if self.my_qq and getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled:
+                new_cookie = await self.cookie_fetcher.refresh(reason="/delete missing cookie")
+                if new_cookie:
+                    self.cookie = new_cookie
+            if not self.cookie:
+                yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+                return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)

@@ -70,6 +70,7 @@ class QzCookieAutoFetcher:
         self._last_fetch_ts = now
 
         try:
+            logger.info(f"[Qzone] auto cookie fetch start (reason={reason})")
             resp = await self._client.get_cookies(domain=self.DOMAIN)
             cookies_str = ""
             if isinstance(resp, dict):
@@ -77,7 +78,19 @@ class QzCookieAutoFetcher:
             if not cookies_str:
                 logger.warning(f"[Qzone] auto cookie fetch failed: empty cookies (reason={reason})")
                 return None
-            logger.info(f"[Qzone] auto cookie fetched ok (reason={reason})")
+
+            # Structural checks (no cookie content printed)
+            has_uin = "uin=" in cookies_str
+            has_skey = "skey=" in cookies_str
+            has_p_skey = "p_skey=" in cookies_str
+            logger.info(
+                "[Qzone] auto cookie fetched ok (reason=%s) | has_uin=%s has_skey=%s has_p_skey=%s len=%s",
+                reason,
+                has_uin,
+                has_skey,
+                has_p_skey,
+                len(cookies_str),
+            )
             return cookies_str
         except Exception as e:
             logger.warning(f"[Qzone] auto cookie fetch exception (reason={reason}): {e}")
