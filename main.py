@@ -1342,16 +1342,19 @@ class QzoneAutoLikePlugin(Star):
         yield event.plain_result("\n".join([s for s in lines if s and not s.endswith('=')]))
 
     @filter.event_message_type(filter.EventMessageType.ALL)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def _intercept_local_scheduler_cmds(self, event: AstrMessageEvent):
         # Intercept scheduler commands early to prevent external tool-loop agents from hijacking them.
-        # NOTE: Do NOT stop_event here; stopping here can prevent our own command handlers from firing in some builds.
+        # Also provide a fallback path for custom command prefixes (e.g. users replace default "/" with "，").
         raw = (event.message_str or "").strip()
         if not raw:
             return
 
         txt = raw
+        used_prefix = False
         if txt.startswith("，") or txt.startswith(","):
             txt = txt[1:].lstrip()
+            used_prefix = True
 
         if not txt:
             return
@@ -1366,11 +1369,24 @@ class QzoneAutoLikePlugin(Star):
             "定时说说任务列表",
         ):
             if txt.startswith(p):
-                # Mark for command handler to stop propagation after it replies.
                 try:
                     setattr(event, "_qz_stop_after", True)
                 except Exception:
                     pass
+
+                # If a custom prefix was used, command parser may not trigger @filter.command.
+                # In that case, call handlers directly and stop propagation.
+                if used_prefix:
+                    if txt.startswith("定时任务列表") or txt.startswith("定时说说任务列表"):
+                        async for r in self.cron_list_local(event):
+                            await event.send(r)
+                    else:
+                        async for r in self.ai_post_ctl(event):
+                            await event.send(r)
+                    try:
+                        event.stop_event()
+                    except Exception:
+                        pass
                 return
 
     @filter.command("定时任务列表")
