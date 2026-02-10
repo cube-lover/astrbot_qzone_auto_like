@@ -1474,6 +1474,34 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def _intercept_local_scheduler_cmds(self, event: AstrMessageEvent):
+        # Best-effort capture of OneBot client for cookie auto-fetch.
+        try:
+            if getattr(self, "cookie_fetcher", None):
+                self.cookie_fetcher.capture_bot(event)
+        except Exception:
+            pass
+
+        # Auto-start on first message if enabled+auto_start is on but cookie was missing at load time.
+        try:
+            if (
+                self.auto_start
+                and self.enabled
+                and (not self._is_running())
+                and self.my_qq
+                and (not self.cookie)
+                and getattr(self, "cookie_fetcher", None)
+                and self.cookie_fetcher.enabled
+                and getattr(self.cookie_fetcher, "_client", None)
+            ):
+                new_cookie = await self.cookie_fetcher.refresh(reason="autostart first message", event=event)
+                if new_cookie:
+                    self.cookie = new_cookie
+                    self._stop_event.clear()
+                    self._task = asyncio.create_task(self._worker())
+                    logger.info("[Qzone] auto_start: started on first message")
+        except Exception:
+            pass
+
         # Intercept a few high-signal phrases early to prevent tool-loop agents from replying without
         # actually calling qz_delete/qz_post.
         raw = (event.message_str or "").strip()
