@@ -2783,7 +2783,7 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not confirm:
-            yield event.plain_result(f"待删除（未执行）：tid={t}")
+            yield event.plain_result("OK")
             return
 
         if not self.my_qq or not self.cookie:
@@ -2836,7 +2836,7 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not confirm:
-            yield event.plain_result(f"草稿（未发送）：{content}")
+            yield event.plain_result("OK")
             return
 
         if not self.my_qq or not self.cookie:
