@@ -371,7 +371,7 @@ class QzoneAutoLikePlugin(Star):
             # Use the official API: context.send_message(umo, chain)
             if to_private:
                 try:
-                    umo = f"aiocqhttp:private:{str(to_private)}"
+                    umo = f"aiocqhttp:friend:{str(to_private)}"
                     await self.context.send_message(umo, text)
                     sent = True
                 except Exception as e:
