@@ -13,7 +13,7 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 - 去重：自动轮询启用“内存去重(带TTL，不落盘)”，避免每轮重复点同一条；手动 `/点赞` 默认不去重
 - WebUI 配置开关：`enabled` / `auto_start`
 - 可选配置默认目标空间：`target_qq`
-- 保留命令控制：`/start`、`/stop`、`/status`、`/点赞`、`/post`、`/genpost`
+- 保留命令控制：`/qz_start`、`/qz_stop`、`/qz_status`、`/点赞`、`/post`、`/genpost`
 
 ## 效果截图
 
@@ -30,8 +30,6 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 ## 交流群
 
 不懂的进 QQ 交流群：`460973561`。
-
-进群前请先给本仓库点 `Star`，不点 `Star` 不给进。
 
 ## 安装
 
@@ -72,8 +70,12 @@ AstrBot 插件：自动侦测并点赞 QQ 空间动态（强后台日志版）�
 - `like_ramp_step`：仅在手动 `/点赞` 指定次数 > 10 时生效；feeds 的 count 将按 `10->20->...` 递增（默认 10）
 - `auto_dedup_ttl_sec`：自动轮询去重 TTL（秒，默认 86400=24h；0 表示不去重）
 
-AI 定时发说说（无需命令，按配置自动运行）：
-- `ai_post_enabled`：启用 AI 定时发说说
+AI 自动发说说（可选）：
+- 本插件内置“固定配置模式”（老的本地 scheduler），也支持配合 AstrBot 的「未来任务」使用 `qz_post/qz_delete` 工具来实现更灵活的定时。
+- 如果你启用了 AstrBot 的「主动型能力」，你可以在群里用自然语言创建未来任务（例如“每隔五分钟发一条说说 …”），AstrBot 会按时唤醒并调用本插件工具。
+
+自动发说说（固定配置模式，按 WebUI 配置运行）：
+- `ai_post_enabled`：启用自动发说说
 - `ai_post_mark`：是否在正文开头加 `【AI发送】`
 - `ai_post_provider_id`：指定使用的 LLM 提供商（留空=用默认）
 - `ai_post_interval_min`：每隔多少分钟发一条（0=关闭 interval）
@@ -82,14 +84,18 @@ AI 定时发说说（无需命令，按配置自动运行）：
 - `ai_post_daily_prompt`：daily 模式提示词
 - `ai_post_delete_after_min`：发布后多少分钟自动删除（0=不删）
 
+通知（2026-02 现状说明）：
+- 由于不同 AstrBot/适配器版本对“跨会话主动发消息”的 API/MessageType 支持不一致，本插件默认不再对“发说说/删说说成功”做主动推送，避免刷屏。
+- 若需要只在失败时提醒，建议结合 AstrBot 的「未来任务」侧的结果回传或查看后台日志。
+
 可选：
 - `target_qq`：默认目标QQ空间（留空=自己的空间；也可用 `/点赞 ...` 临时切换并立即执行）
 
 ## 命令
 
-- `/start`：启动后台任务（同时会把 enabled 置为 true）
-- `/stop`：停止后台任务（同时会把 enabled 置为 false）
-- `/status`：查看运行状态、enabled/auto_start、目标空间、缓存数量
+- `/qz_start`：启动后台任务（同时会把 enabled 置为 true）
+- `/qz_stop`：停止后台任务（同时会把 enabled 置为 false）
+- `/qz_status`：查看运行状态、enabled/auto_start、目标空间、缓存数量
 - `/点赞 @某人 [次数]`：立即点赞对方空间的动态（默认 10，上限 100）。注意：次数只在你明确输入时才会生效，避免被适配器/文本误解析成 100。
 - `/点赞 QQ号 [次数]`：立即点赞指定 QQ 空间的动态（默认 10，上限 100）。
 - `/post 内容...`：发一条纯文字说说（失败会在后台输出回包 head 便于排查）
