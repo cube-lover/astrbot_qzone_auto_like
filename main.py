@@ -19,7 +19,7 @@ from urllib.parse import quote
 import requests
 
 from astrbot.api.star import Star, register
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api import ToolSet
 from astrbot.api import logger
 
@@ -368,31 +368,21 @@ class QzoneAutoLikePlugin(Star):
 
         sent = False
         async with self._ai_notify_lock:
+            # Use the official API: context.send_message(umo, chain)
             if to_private:
                 try:
-                    # Prefer Star APIs when available.
-                    if hasattr(self, "send_private_message"):
-                        await self.send_private_message(user_id=str(to_private), message=text)
-                    elif hasattr(self.context, "send_private_message"):
-                        await self.context.send_private_message(user_id=str(to_private), message=text)
-                    elif hasattr(self.context, "send_private"):
-                        await self.context.send_private(user_id=str(to_private), message=text)
-                    else:
-                        raise RuntimeError("no send_private_message API")
+                    umo = f"aiocqhttp:private:{str(to_private)}"
+                    chain = MessageChain().plain(text)
+                    await self.context.send_message(umo, chain)
                     sent = True
                 except Exception as e:
                     logger.warning(f"[Qzone] AI notify private failed kind={kind}: {e}")
 
             if to_group:
                 try:
-                    if hasattr(self, "send_group_message"):
-                        await self.send_group_message(group_id=str(to_group), message=text)
-                    elif hasattr(self.context, "send_group_message"):
-                        await self.context.send_group_message(group_id=str(to_group), message=text)
-                    elif hasattr(self.context, "send_group"):
-                        await self.context.send_group(group_id=str(to_group), message=text)
-                    else:
-                        raise RuntimeError("no send_group_message API")
+                    umo = f"aiocqhttp:group:{str(to_group)}"
+                    chain = MessageChain().plain(text)
+                    await self.context.send_message(umo, chain)
                     sent = True
                 except Exception as e:
                     logger.warning(f"[Qzone] AI notify group failed kind={kind}: {e}")
