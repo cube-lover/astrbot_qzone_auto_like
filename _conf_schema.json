@@ -32,7 +32,7 @@
   "auto_start": {
     "type": "bool",
     "description": "Bot启动后自动开始后台轮询",
-    "default": true
+    "default": false
   },
   "poll_interval_sec": {
     "type": "int",
