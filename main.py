@@ -208,60 +208,6 @@ class QzoneAutoLikePlugin(Star):
         super().__init__(context)
         self.config = config or {}
 
-    async def _notify_configured(self, kind: str, msg: str) -> None:
-        """Send notifications for qz_post/qz_delete via config targets.
-
-        kind: post|delete
-        """
-        kind = (kind or "").strip().lower()
-        text = str(msg or "").strip()
-        if not text:
-            return
-
-        if kind == "post":
-            enabled = bool(self.config.get("ai_post_notify_enabled", False))
-            mode = str(self.config.get("ai_post_notify_mode", "error") or "error").strip().lower()
-            to_private = str(self.config.get("ai_post_notify_private_qq", "") or "").strip()
-            to_group = str(self.config.get("ai_post_notify_group_id", "") or "").strip()
-        else:
-            enabled = bool(self.config.get("ai_post_delete_notify_enabled", False))
-            mode = str(self.config.get("ai_post_delete_notify_mode", "error") or "error").strip().lower()
-            to_private = str(self.config.get("ai_post_delete_notify_private_qq", "") or "").strip()
-            to_group = str(self.config.get("ai_post_delete_notify_group_id", "") or "").strip()
-
-        if (not enabled) or mode == "off":
-            return
-
-        # If mode=error, caller should only pass errors. We keep it simple: always send.
-        sent = False
-
-        if to_private:
-            try:
-                if hasattr(self.context, "send_private_message"):
-                    await self.context.send_private_message(user_id=to_private, message=text)
-                elif hasattr(self.context, "send_private"):
-                    await self.context.send_private(user_id=to_private, message=text)
-                else:
-                    raise RuntimeError("context missing send_private_message")
-                sent = True
-            except Exception as e:
-                logger.warning(f"[Qzone] notify private failed kind={kind}: {e}")
-
-        if to_group:
-            try:
-                if hasattr(self.context, "send_group_message"):
-                    await self.context.send_group_message(group_id=to_group, message=text)
-                elif hasattr(self.context, "send_group"):
-                    await self.context.send_group(group_id=to_group, message=text)
-                else:
-                    raise RuntimeError("context missing send_group_message")
-                sent = True
-            except Exception as e:
-                logger.warning(f"[Qzone] notify group failed kind={kind}: {e}")
-
-        if not sent:
-            logger.warning(f"[Qzone] notify dropped kind={kind}: no targets or send failed")
-
         # 运行时：目标空间（若为空则监控/点赞自己的空间）
         self._target_qq: str = ""
         self._manual_like_limit: int = 0
@@ -2836,19 +2782,10 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
-                # Notify via configured channels; avoid replying in the triggering chat.
-                try:
-                    await self._notify_configured("delete", f"✅ 已删除说说 tid={t}")
-                except Exception:
-                    pass
-                yield event.plain_result("OK")
+                yield event.plain_result(f"✅ 已删除说说 tid={t}")
             else:
                 hint = result.message or "删除失败（可能 cookie/风控/验证码/权限）"
-                try:
-                    await self._notify_configured("delete", f"❌ 删除失败：status={status} code={result.code} msg={hint}")
-                except Exception:
-                    pass
-                yield event.plain_result("FAIL")
+                yield event.plain_result(f"❌ 删除失败：status={status} code={result.code} msg={hint}")
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 删除说说异常: {e}")
             logger.error(traceback.format_exc())
@@ -2901,18 +2838,10 @@ class QzoneAutoLikePlugin(Star):
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
                 if getattr(result, "tid", ""):
                     self._remember_post(str(result.tid), content)
-                try:
-                    await self._notify_configured("post", f"✅ 已发送说说{tid_info}")
-                except Exception:
-                    pass
-                yield event.plain_result("OK")
+                yield event.plain_result(f"✅ 已发送说说{tid_info}")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
-                try:
-                    await self._notify_configured("post", f"❌ 发送失败：status={status} code={result.code} msg={hint}")
-                except Exception:
-                    pass
-                yield event.plain_result("FAIL")
+                yield event.plain_result(f"❌ 发送失败：status={status} code={result.code} msg={hint}")
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 发说说异常: {e}")
             logger.error(traceback.format_exc())
