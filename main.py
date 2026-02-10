@@ -2945,6 +2945,36 @@ class QzoneAutoLikePlugin(Star):
         except Exception as e:
             logger.warning(f"[Qzone] on_llm_request 挂载工具失败: {e}")
 
+    @filter.command("notifytest")
+    async def notifytest(self, event: AstrMessageEvent):
+        """测试通知发送（按配置私聊/指定群发送，不回当前群）。
+
+        用法：/notifytest post 你好
+              /notifytest delete 你好
+        """
+        raw = (event.message_str or "").strip()
+        for prefix in ("/notifytest", "notifytest"):
+            if raw.lower().startswith(prefix):
+                raw = raw[len(prefix) :].strip()
+                break
+
+        if not raw:
+            yield event.plain_result("用法：/notifytest post 你好  或  /notifytest delete 你好")
+            return
+
+        parts = raw.split(maxsplit=1)
+        kind = parts[0].strip().lower()
+        msg = parts[1].strip() if len(parts) > 1 else ""
+        if kind not in ("post", "delete"):
+            yield event.plain_result("kind 仅支持 post/delete")
+            return
+        if not msg:
+            yield event.plain_result("消息不能为空")
+            return
+
+        await self._notify_configured(kind, f"[notifytest] {msg}")
+        yield event.plain_result("已按配置发送（若未配置目标或发送失败，请看日志）")
+
     @filter.command("genpost")
     async def genpost(self, event: AstrMessageEvent):
         """用 AstrBot 已配置的 LLM 生成一条说说，然后自动发送。
