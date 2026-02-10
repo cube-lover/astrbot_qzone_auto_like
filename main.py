@@ -1504,7 +1504,10 @@ class QzoneAutoLikePlugin(Star):
             yield event.plain_result(applied)
             return
 
-        if text in ("开", "开启", "start", "on"):
+        # Be tolerant: some adapters insert extra spaces or hidden chars.
+        tnorm = "".join(ch for ch in (text or "").strip().lower() if ch not in ("\u200b", "\ufeff"))
+
+        if tnorm in ("开", "开启", "打开", "start", "on"):
             self.config["ai_post_enabled"] = True
             try:
                 if hasattr(self.config, "save_config"):
@@ -1512,10 +1515,11 @@ class QzoneAutoLikePlugin(Star):
             except Exception:
                 pass
             await self._maybe_start_ai_task()
-            yield event.plain_result("✅ 已开启 AI 定时发说说")
+            state = "running" if (self._ai_task is not None and (not self._ai_task.done())) else "none"
+            yield event.plain_result(f"✅ 已开启 AI 定时发说说（task={state}）")
             return
 
-        if text in ("关", "关闭", "stop", "off"):
+        if tnorm in ("关", "关闭", "停", "停止", "stop", "off"):
             self.config["ai_post_enabled"] = False
             try:
                 if hasattr(self.config, "save_config"):
