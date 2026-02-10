@@ -24,6 +24,28 @@ from astrbot.api import ToolSet
 from astrbot.api import logger
 
 
+def _maybe_cookie_invalid(status: int, code: Optional[int], msg: str, head: str) -> bool:
+    """Heuristic: detect likely cookie invalidation / verification page."""
+    if status in (401, 403):
+        return True
+    m = (msg or "").lower()
+    h = (head or "").lower()
+    # Common qzone failure hints
+    for kw in ("need login", "login", "cookie", "skey", "p_skey", "verify", "验证码", "请登录"):
+        if kw in m or kw in h:
+            return True
+    # Non-JSON HTML pages often indicate verification/intercept
+    if "<html" in h and ("login" in h or "verify" in h):
+        return True
+    # Some adapters only surface business code
+    try:
+        if code is not None and int(code) in (3000, 3001, 4001):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _now_hms() -> str:
     return time.strftime("%H:%M:%S")
 
@@ -208,6 +230,10 @@ class QzoneAutoLikePlugin(Star):
         super().__init__(context)
         self.config = config or {}
 
+        # Napcat/AIOCQHTTP bot client (captured from message events) for dynamic cookie fetching.
+        self._cqhttp_client = None
+        self._cookie_last_fetch_ts = 0.0
+
         # 运行时：目标空间（若为空则监控/点赞自己的空间）
         self._target_qq: str = ""
         self._manual_like_limit: int = 0
@@ -275,6 +301,12 @@ class QzoneAutoLikePlugin(Star):
         self.my_qq = str(self.config.get("my_qq", "")).strip()
         self.cookie = str(self.config.get("cookie", "")).strip()
         self._target_qq = str(self.config.get("target_qq", "")).strip()
+
+        self.cookie_auto_fetch_enabled = bool(self.config.get("cookie_auto_fetch_enabled", False))
+        self.cookie_auto_fetch_on_fail = bool(self.config.get("cookie_auto_fetch_on_fail", True))
+        self.cookie_auto_fetch_cooldown_sec = int(self.config.get("cookie_auto_fetch_cooldown_sec", 120) or 120)
+        if self.cookie_auto_fetch_cooldown_sec < 5:
+            self.cookie_auto_fetch_cooldown_sec = 5
 
         # Scheduler initialization (only for AI timed posting/deletion). Must be after my_qq/cookie is loaded.
         self._ai_notify_lock = asyncio.Lock()
@@ -629,6 +661,54 @@ class QzoneAutoLikePlugin(Star):
                 self.config.save_config()
         except Exception as e:
             logger.warning(f"[Qzone] 保存 enabled 配置失败: {e}")
+
+    async def _capture_cqhttp_bot(self, event: AstrMessageEvent) -> None:
+        """Best-effort capture CQHttp/Napcat bot client from an incoming event."""
+        if self._cqhttp_client is not None:
+            return
+        if event is None:
+            return
+        bot = getattr(event, "bot", None)
+        if bot is None:
+            return
+        self._cqhttp_client = bot
+
+    async def _refresh_cookie_from_napcat(self, *, reason: str = "") -> bool:
+        if not self.cookie_auto_fetch_enabled:
+            return False
+        if not self._cqhttp_client:
+            return False
+
+        now = time.time()
+        if now - float(self._cookie_last_fetch_ts or 0.0) < float(self.cookie_auto_fetch_cooldown_sec):
+            return False
+
+        try:
+            # Napcat (AIOCQHTTP) extended API
+            resp = await self._cqhttp_client.get_cookies(domain="user.qzone.qq.com")
+            cookies_str = ""
+            if isinstance(resp, dict):
+                cookies_str = str(resp.get("cookies") or "").strip()
+            if not cookies_str:
+                logger.warning(f"[Qzone] auto cookie fetch failed: empty cookies (reason={reason})")
+                self._cookie_last_fetch_ts = now
+                return False
+
+            self.cookie = cookies_str
+            self._cookie_last_fetch_ts = now
+
+            try:
+                if self._scheduler is not None:
+                    self._scheduler.cookie = cookies_str
+            except Exception:
+                pass
+
+            logger.info(f"[Qzone] auto cookie fetched ok (reason={reason})")
+            return True
+        except Exception as e:
+            self._cookie_last_fetch_ts = now
+            logger.warning(f"[Qzone] auto cookie fetch exception (reason={reason}): {e}")
+            return False
 
     async def _maybe_autostart(self) -> None:
         if not self.auto_start:
@@ -2777,6 +2857,7 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.llm_tool(name="qz_delete")
     async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False, count: int = 0):
+        await self._capture_cqhttp_bot(event)
         """删除QQ空间说说。
 
         LLM 使用指南：
@@ -2834,12 +2915,25 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
-            return
+            # Try auto-fetch cookie if enabled
+            if self.my_qq and self.cookie_auto_fetch_enabled and await self._refresh_cookie_from_napcat(reason="qz_delete missing cookie"):
+                pass
+            else:
+                yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+                return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
             status, result = await asyncio.to_thread(poster.delete_by_tid, t)
+            if self.cookie_auto_fetch_on_fail and _maybe_cookie_invalid(
+                status,
+                getattr(result, "code", None),
+                getattr(result, "message", ""),
+                getattr(result, "raw_head", ""),
+            ):
+                if await self._refresh_cookie_from_napcat(reason="qz_delete cookie invalid"):
+                    poster = QzonePoster(self.my_qq, self.cookie)
+                    status, result = await asyncio.to_thread(poster.delete_by_tid, t)
             logger.info(
                 "[Qzone] llm_tool delete 返回 | status=%s ok=%s code=%s msg=%s head=%s",
                 status,
@@ -2876,6 +2970,7 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.llm_tool(name="qz_post")
     async def llm_tool_qz_post(self, event: AstrMessageEvent, text: str, confirm: bool = False):
+        await self._capture_cqhttp_bot(event)
         """发送QQ空间说说。
 
         Args:
@@ -2892,12 +2987,26 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
-            return
+            # Try auto-fetch cookie if enabled
+            if self.my_qq and self.cookie_auto_fetch_enabled and await self._refresh_cookie_from_napcat(reason="qz_post missing cookie"):
+                pass
+            else:
+                yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+                return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
             status, result = await asyncio.to_thread(poster.publish_text, content)
+            if self.cookie_auto_fetch_on_fail and _maybe_cookie_invalid(
+                status,
+                getattr(result, "code", None),
+                getattr(result, "message", ""),
+                getattr(result, "raw_head", ""),
+            ):
+                if await self._refresh_cookie_from_napcat(reason="qz_post cookie invalid"):
+                    poster = QzonePoster(self.my_qq, self.cookie)
+                    status, result = await asyncio.to_thread(poster.publish_text, content)
+
             logger.info(
                 "[Qzone] llm_tool post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
                 status,
