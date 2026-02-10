@@ -23,7 +23,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import ToolSet
 from astrbot.api import logger
 
-from .qz_cookie import QzCookieAutoFetcher, maybe_cookie_invalid
+from .qz_cookie import QzCookieAutoFetcher
 
 
 def _now_hms() -> str:
@@ -239,11 +239,9 @@ class QzoneAutoLikePlugin(Star):
 
         # Cookie auto fetch (Napcat/AIOCQHTTP)
         self.cookie_auto_fetch_enabled = bool(self.config.get("cookie_auto_fetch_enabled", False))
-        self.cookie_auto_fetch_on_fail = bool(self.config.get("cookie_auto_fetch_on_fail", True))
         self.cookie_auto_fetch_cooldown_sec = int(self.config.get("cookie_auto_fetch_cooldown_sec", 120) or 120)
         self.cookie_fetcher = QzCookieAutoFetcher(
             enabled=self.cookie_auto_fetch_enabled,
-            on_fail=self.cookie_auto_fetch_on_fail,
             cooldown_sec=self.cookie_auto_fetch_cooldown_sec,
         )
 
@@ -2789,7 +2787,6 @@ class QzoneAutoLikePlugin(Star):
 
     @filter.llm_tool(name="qz_delete")
     async def llm_tool_qz_delete(self, event: AstrMessageEvent, tid: str = "", confirm: bool = False, latest: bool = False, count: int = 0):
-        self.cookie_fetcher.capture_bot(event)
         """删除QQ空间说说。
 
         LLM 使用指南：
@@ -2847,18 +2844,17 @@ class QzoneAutoLikePlugin(Star):
             return
 
         if not self.my_qq or not self.cookie:
-            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
-            return
+            if self.my_qq and self.cookie_fetcher.enabled:
+                new_cookie = await self.cookie_fetcher.refresh(reason="qz_delete missing cookie")
+                if new_cookie:
+                    self.cookie = new_cookie
+            if not self.cookie:
+                yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+                return
 
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
             status, result = await asyncio.to_thread(poster.delete_by_tid, t)
-            if self.cookie_fetcher.on_fail and maybe_cookie_invalid(status, result.code, result.message, result.raw_head):
-                new_cookie = await self.cookie_fetcher.refresh(reason="qz_delete cookie invalid")
-                if new_cookie:
-                    self.cookie = new_cookie
-                    poster = QzonePoster(self.my_qq, self.cookie)
-                    status, result = await asyncio.to_thread(poster.delete_by_tid, t)
             logger.info(
                 "[Qzone] llm_tool delete 返回 | status=%s ok=%s code=%s msg=%s head=%s",
                 status,
@@ -2897,10 +2893,10 @@ class QzoneAutoLikePlugin(Star):
     async def llm_tool_qz_post(self, event: AstrMessageEvent, text: str, confirm: bool = False):
         """发送QQ空间说说。
 
-        Note: Do NOT add statements before this docstring. Some AstrBot builds parse handler
-        signatures/docstrings and may break tool argument binding.
+        Args:
+            text(string): 要发送的说说正文（纯文字）
+            confirm(boolean): 是否确认直接发送；false 时只返回草稿
         """
-        self.cookie_fetcher.capture_bot(event)
         content = (text or "").strip()
         if not content:
             yield event.plain_result("草稿为空")
@@ -2922,12 +2918,6 @@ class QzoneAutoLikePlugin(Star):
         try:
             poster = QzonePoster(self.my_qq, self.cookie)
             status, result = await asyncio.to_thread(poster.publish_text, content)
-            if self.cookie_fetcher.on_fail and maybe_cookie_invalid(status, result.code, result.message, result.raw_head):
-                new_cookie = await self.cookie_fetcher.refresh(reason="qz_post cookie invalid")
-                if new_cookie:
-                    self.cookie = new_cookie
-                    poster = QzonePoster(self.my_qq, self.cookie)
-                    status, result = await asyncio.to_thread(poster.publish_text, content)
             logger.info(
                 "[Qzone] llm_tool post 返回 | status=%s ok=%s code=%s msg=%s head=%s",
                 status,
@@ -2958,6 +2948,11 @@ class QzoneAutoLikePlugin(Star):
     @filter.on_llm_request(priority=5)
     async def on_llm_request(self, event: AstrMessageEvent, req, *args):
         """把 Qzone 工具挂到当前会话的 LLM 请求里（让“，”触发的自然语言也能调用）。"""
+        try:
+            self.cookie_fetcher.capture_bot(event)
+        except Exception:
+            pass
+
         try:
             mgr = self.context.get_llm_tool_manager()
             if not mgr:
