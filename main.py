@@ -1407,6 +1407,17 @@ class QzoneAutoLikePlugin(Star):
             return
 
         self._set_enabled(True)
+
+        # If cookie is empty, try auto-fetch using the current event context (has call_api/bot).
+        if (not self.cookie) and getattr(self, "cookie_fetcher", None) and self.cookie_fetcher.enabled and self.my_qq:
+            new_cookie = await self.cookie_fetcher.refresh(reason="start missing cookie", event=event)
+            if new_cookie:
+                self.cookie = new_cookie
+
+        if not self.my_qq or not self.cookie:
+            yield event.plain_result("配置缺失：my_qq 或 cookie 为空")
+            return
+
         self._stop_event.clear()
         self._task = asyncio.create_task(self._worker())
         yield event.plain_result("🚀 Qzone 自动点赞后台任务已启动（已打开 enabled 开关）")
