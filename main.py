@@ -359,7 +359,7 @@ class QzoneAutoLikePlugin(Star):
         to_private = self.ai_post_notify_private_qq if kind == "post" else self.ai_post_delete_notify_private_qq
         to_group = self.ai_post_notify_group_id if kind == "post" else self.ai_post_delete_notify_group_id
 
-        if (not enabled) or mode == "off":
+        if (not enabled) or mode == "off" or mode == "error":
             return
 
         text = str(msg or "").strip()
@@ -371,8 +371,9 @@ class QzoneAutoLikePlugin(Star):
             # Use the official API: context.send_message(umo, chain)
             if to_private:
                 try:
-                    umo = f"aiocqhttp:friend:{str(to_private)}"
-                    await self.context.send_message(umo, text)
+                    # NOTE: This AstrBot build rejects 'private'/'friend' as MessageType.
+                    # We only support group notifications reliably.
+                    raise RuntimeError("private notify unsupported: invalid MessageType")
                     sent = True
                 except Exception as e:
                     logger.warning(f"[Qzone] AI notify private failed kind={kind}: {e}")
@@ -2801,26 +2802,14 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
-                try:
-                    await self._send_ai_notify("delete", f"✅ 已删除说说 tid={t}")
-                except Exception:
-                    pass
                 yield event.plain_result("OK")
             else:
                 hint = result.message or "删除失败（可能 cookie/风控/验证码/权限）"
-                try:
-                    await self._send_ai_notify("delete", f"❌ 删除失败：status={status} code={result.code} msg={hint}")
-                except Exception:
-                    pass
-                yield event.plain_result("FAIL")
+                yield event.plain_result(f"FAIL status={status} code={result.code} msg={hint}")
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 删除说说异常: {e}")
             logger.error(traceback.format_exc())
-            try:
-                await self._send_ai_notify("delete", f"❌ 异常：{e}")
-            except Exception:
-                pass
-            yield event.plain_result("FAIL")
+            yield event.plain_result(f"FAIL exception={e}")
 
     @filter.llm_tool(name="sleep_seconds")
     async def llm_tool_sleep_seconds(self, event: AstrMessageEvent = None, sec: float = 0):
@@ -2869,26 +2858,14 @@ class QzoneAutoLikePlugin(Star):
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
                 if getattr(result, "tid", ""):
                     self._remember_post(str(result.tid), content)
-                try:
-                    await self._send_ai_notify("post", f"✅ 已发送说说{tid_info}")
-                except Exception:
-                    pass
                 yield event.plain_result("OK")
             else:
                 hint = result.message or "发送失败（可能 cookie/风控/验证页）"
-                try:
-                    await self._send_ai_notify("post", f"❌ 发送失败：status={status} code={result.code} msg={hint}")
-                except Exception:
-                    pass
-                yield event.plain_result("FAIL")
+                yield event.plain_result(f"FAIL status={status} code={result.code} msg={hint}")
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 发说说异常: {e}")
             logger.error(traceback.format_exc())
-            try:
-                await self._send_ai_notify("post", f"❌ 异常：{e}")
-            except Exception:
-                pass
-            yield event.plain_result("FAIL")
+            yield event.plain_result(f"FAIL exception={e}")
 
     @filter.on_llm_request(priority=5)
     async def on_llm_request(self, event: AstrMessageEvent, req, *args):
