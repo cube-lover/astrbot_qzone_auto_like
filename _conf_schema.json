@@ -6,8 +6,23 @@
   },
   "cookie": {
     "type": "text",
-    "description": "QQ空间登录态 Cookie（至少包含 p_skey=...；必填）",
+    "description": "QQ空间登录态 Cookie（至少包含 p_skey=...；可留空并启用 cookie_auto_fetch_enabled 自动获取）",
     "default": ""
+  },
+  "cookie_auto_fetch_enabled": {
+    "type": "bool",
+    "description": "是否从 Napcat(AIOCQHTTP) 自动获取 user.qzone.qq.com 的 Cookie（推荐开启）",
+    "default": false
+  },
+  "cookie_auto_fetch_on_fail": {
+    "type": "bool",
+    "description": "当请求疑似因 Cookie 失效失败时，是否自动重新获取并重试一次",
+    "default": true
+  },
+  "cookie_auto_fetch_cooldown_sec": {
+    "type": "int",
+    "description": "自动获取 Cookie 的冷却时间（秒），避免失败时频繁刷新",
+    "default": 120
   },
   "target_qq": {
     "type": "string",
