@@ -234,6 +234,12 @@ class QzoneAutoLikePlugin(Star):
         self.ai_post_delete_notify_group_id = str(self.config.get("ai_post_delete_notify_group_id", "") or "").strip()
 
         self._liked: Set[str] = set()
+
+        # LLM tools reply mode: control whether qz_post/qz_delete produce visible replies.
+        # all=reply OK/FAIL; error=only reply on failure; off=never reply (log only)
+        self.llm_tool_reply_mode = str(self.config.get("llm_tool_reply_mode", "error") or "error").strip().lower()
+        if self.llm_tool_reply_mode not in ("all", "error", "off"):
+            self.llm_tool_reply_mode = "error"
         self._data_path = Path(__file__).parent / "data" / "liked_records.json"
 
         # In-memory: last posted tid/content for quick follow-up actions.
@@ -2843,14 +2849,19 @@ class QzoneAutoLikePlugin(Star):
                 result.raw_head,
             )
             if status == 200 and result.ok:
-                yield event.plain_result("OK")
-            else:
-                hint = result.message or "删除失败（可能 cookie/风控/验证码/权限）"
+                if self.llm_tool_reply_mode == "all":
+                    yield event.plain_result("OK")
+                return
+            hint = result.message or "删除失败（可能 cookie/风控/验证码/权限）"
+            if self.llm_tool_reply_mode != "off":
                 yield event.plain_result(f"FAIL status={status} code={result.code} msg={hint}")
+            return
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 删除说说异常: {e}")
             logger.error(traceback.format_exc())
-            yield event.plain_result(f"FAIL exception={e}")
+            if self.llm_tool_reply_mode != "off":
+                yield event.plain_result(f"FAIL exception={e}")
+            return
 
     @filter.llm_tool(name="sleep_seconds")
     async def llm_tool_sleep_seconds(self, event: AstrMessageEvent = None, sec: float = 0):
@@ -2899,13 +2910,20 @@ class QzoneAutoLikePlugin(Star):
                 tid_info = f" tid={result.tid}" if getattr(result, "tid", "") else ""
                 if getattr(result, "tid", ""):
                     self._remember_post(str(result.tid), content)
-                yield event.plain_result("OK")
-            else:
-                hint = result.message or "发送失败（可能 cookie/风控/验证页）"
+                if self.llm_tool_reply_mode == "all":
+                    yield event.plain_result("OK")
+                return
+
+            hint = result.message or "发送失败（可能 cookie/风控/验证页）"
+            if self.llm_tool_reply_mode != "off":
                 yield event.plain_result(f"FAIL status={status} code={result.code} msg={hint}")
+            return
         except Exception as e:
             logger.error(f"[Qzone] llm_tool 发说说异常: {e}")
             logger.error(traceback.format_exc())
+            if self.llm_tool_reply_mode != "off":
+                yield event.plain_result(f"FAIL exception={e}")
+            return
             yield event.plain_result(f"FAIL exception={e}")
 
     @filter.on_llm_request(priority=5)

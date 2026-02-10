@@ -185,6 +185,11 @@
     "description": "发布后多少分钟自动删除（0=不删除）",
     "default": 0
   },
+  "llm_tool_reply_mode": {
+    "type": "string",
+    "description": "LLM工具(qz_post/qz_delete)：回复模式 all=成功+失败都回复；error=仅失败回复；off=都不回复（仅日志）",
+    "default": "error"
+  },
   "ai_post_last_run_ts": {
     "type": "float",
     "description": "AI定时发说说：上次触发时间戳（自动写入）",
