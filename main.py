@@ -253,6 +253,15 @@ class QzoneAutoLikePlugin(Star):
             cooldown_sec=self.cookie_auto_fetch_cooldown_sec,
         )
 
+        # Periodic cookie refresh (default ON): keep cookie fresh even after expiration.
+        # Note: it still needs a captured OneBot/Napcat client (usually captured after any event or /start).
+        self.cookie_periodic_refresh_enabled = bool(self.config.get("cookie_periodic_refresh_enabled", True))
+        self.cookie_periodic_refresh_interval_sec = int(self.config.get("cookie_periodic_refresh_interval_sec", 120) or 120)
+        if self.cookie_periodic_refresh_interval_sec < 30:
+            self.cookie_periodic_refresh_interval_sec = 30
+        self._cookie_refresh_task: Optional[asyncio.Task] = None
+        self._cookie_refresh_stop = asyncio.Event()
+
         # LLM tools reply mode: control whether qz_post/qz_delete produce visible replies.
         # all=reply OK/FAIL; error=only reply on failure; off=never reply (log only)
         self.llm_tool_reply_mode = str(self.config.get("llm_tool_reply_mode", "error") or "error").strip().lower()
@@ -3344,11 +3353,62 @@ class QzoneAutoLikePlugin(Star):
         attempted, ok = await self._like_once(client, target_qq, count_int)
         yield event.plain_result(f"完成：目标空间={target_qq} | 本次尝试={attempted} | 成功={ok}")
 
+    async def _cookie_periodic_refresh_worker(self) -> None:
+        """Background task to periodically refresh cookie.
+
+        This avoids the 'cookie expired but still non-empty string' problem.
+        It requires cookie_auto_fetch_enabled=true and a captured OneBot client.
+        """
+        if not getattr(self, "cookie_fetcher", None):
+            return
+        if not self.cookie_fetcher.enabled:
+            return
+
+        interval = int(getattr(self, "cookie_periodic_refresh_interval_sec", 120) or 120)
+        if interval < 30:
+            interval = 30
+
+        logger.info("[Qzone] periodic cookie refresh enabled interval=%ss", interval)
+
+        # small initial delay to let adapters/bot capture happen
+        try:
+            await asyncio.wait_for(self._cookie_refresh_stop.wait(), timeout=5)
+            return
+        except asyncio.TimeoutError:
+            pass
+
+        while not self._cookie_refresh_stop.is_set():
+            try:
+                # Only refresh when a client has been captured; otherwise skip quietly.
+                if getattr(self.cookie_fetcher, "_client", None):
+                    ok = await self._maybe_refresh_cookie(reason="periodic", event=None)
+                    if ok:
+                        logger.info("[Qzone] periodic cookie refresh OK")
+                await asyncio.wait_for(self._cookie_refresh_stop.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.warning(f"[Qzone] periodic cookie refresh error: {e}")
+                # backoff
+                try:
+                    await asyncio.wait_for(self._cookie_refresh_stop.wait(), timeout=min(interval, 60))
+                except Exception:
+                    pass
+
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
         # Bot 启动完成后，根据配置决定是否自动启动
         await self._maybe_autostart()
         await self._maybe_start_ai_task()
+
+        # Start periodic cookie refresh (default ON)
+        try:
+            if getattr(self, "cookie_periodic_refresh_enabled", False):
+                if self._cookie_refresh_task is None or self._cookie_refresh_task.done():
+                    self._cookie_refresh_stop.clear()
+                    self._cookie_refresh_task = asyncio.create_task(self._cookie_periodic_refresh_worker())
+        except Exception as e:
+            logger.warning(f"[Qzone] start periodic cookie refresh failed: {e}")
 
         if self.protect_enabled:
             if not self.my_qq or not self.cookie:
@@ -3381,6 +3441,18 @@ class QzoneAutoLikePlugin(Star):
                 pass
             try:
                 await asyncio.wait_for(ai_task, timeout=10)
+            except Exception:
+                pass
+
+        # Stop periodic cookie refresh task
+        t = getattr(self, "_cookie_refresh_task", None)
+        if t is not None and (not t.done()):
+            try:
+                self._cookie_refresh_stop.set()
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(t, timeout=10)
             except Exception:
                 pass
 
