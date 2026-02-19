@@ -1545,6 +1545,13 @@ class QzoneAutoLikePlugin(Star):
 
         self._stop_event.clear()
         self._task = asyncio.create_task(self._worker())
+
+        # If protect is enabled, start protect worker after cookie becomes available.
+        try:
+            await self._maybe_start_protect_task()
+        except Exception as e:
+            logger.warning(f"[Qzone] start protect task failed: {e}")
+
         yield event.plain_result("🚀 Qzone 自动点赞后台任务已启动（已打开 enabled 开关）")
 
     @filter.command("stop")
