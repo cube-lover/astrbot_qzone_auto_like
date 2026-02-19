@@ -2,11 +2,7 @@ name: astrbot_plugin_qzone_auto_like
 display_name: "QQ空间自动化插件（定时/点赞/发说说/删说说）"
 desc: "QQ空间自动化插件：支持后台自动点赞 + 定时发说说/定时删说说；提供强后台日志便于排查cookie失效/风控/验证码；支持WebUI开关(enabled/auto_start)和常用命令。"
 author: cube-lover
-<<<<<<< HEAD
-version: 1.6.58
-=======
 version: 1.6.59
->>>>>>> master
 repo: "https://github.com/cube-lover/astrbot_qzone_auto_like"
 tags:
   - qzone

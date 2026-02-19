@@ -1217,11 +1217,6 @@ class QzoneAutoLikePlugin(Star):
                 await asyncio.sleep(random.randint(self.delay_min, self.delay_max) + jitter)
 
                 like_status, resp = await asyncio.to_thread(client.send_like, full_key)
-<<<<<<< HEAD
-                resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
-                logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
-
-=======
                 resp = resp or ""
                 resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
                 logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
@@ -1244,7 +1239,6 @@ class QzoneAutoLikePlugin(Star):
                         except Exception as e:
                             logger.warning("[Qzone] like retry skipped (client rebuild failed): %s", e)
 
->>>>>>> master
                 code = None
                 msg = ""
                 m = re.search(r"\"code\"\s*:\s*(\d+)", resp)
@@ -1258,16 +1252,12 @@ class QzoneAutoLikePlugin(Star):
                     msg = m2.group(1)
 
                 logger.info("[Qzone] like 结果 | code=%s msg=%s", code, msg)
-<<<<<<< HEAD
-                if msg and "记录成功" in msg:
-=======
 
                 # If code is missing, we cannot trust this as success.
                 if code is None:
                     logger.warning("[Qzone] like parse failed (no code); treat as failure")
                     ok = False
                 elif msg and "记录成功" in msg:
->>>>>>> master
                     ok = False
                 else:
                     ok = code == 0
@@ -1291,8 +1281,6 @@ class QzoneAutoLikePlugin(Star):
 
         return attempted, liked_ok
 
-<<<<<<< HEAD
-=======
     def _looks_like_cookie_expired(self, status_code: int, body_head: str = "") -> bool:
         """Heuristics: determine whether a response likely indicates an expired/invalid cookie."""
         try:
@@ -1326,24 +1314,11 @@ class QzoneAutoLikePlugin(Star):
         except Exception:
             return False
         return False
-
->>>>>>> master
     async def _protect_worker(self) -> None:
         if not self.protect_enabled:
             logger.info("[Qzone] protect_enabled=false，护评不启动")
             return
 
-<<<<<<< HEAD
-        if not self.my_qq or not self.cookie:
-            logger.error("[Qzone] 配置缺失：my_qq 或 cookie 为空，护评无法启动")
-            return
-
-        try:
-            scanner = QzoneProtectScanner(self.my_qq, self.cookie)
-        except Exception as e:
-            logger.error(f"[Qzone] 护评初始化失败: {e}")
-            return
-=======
         # Cookie may be empty/expired at runtime; try refresh before giving up.
         if not self.my_qq or not self.cookie:
             if await self._maybe_refresh_cookie(reason="protect start missing cookie", event=None):
@@ -1354,7 +1329,6 @@ class QzoneAutoLikePlugin(Star):
 
         # NOTE: do not keep scanner/deleter forever; cookie may refresh later.
         # They will be re-created inside the loop with the latest self.cookie.
->>>>>>> master
 
         logger.info(
             "[Qzone] protect worker 启动 | window_min=%s notify=%s interval=%ss pages=%s",
@@ -1364,20 +1338,14 @@ class QzoneAutoLikePlugin(Star):
             self.protect_pages,
         )
 
-<<<<<<< HEAD
-=======
         last_cookie_fp = ""  # fingerprint to detect cookie rotation
 
->>>>>>> master
         # runtime state for diagnostics (even if logs are filtered)
         self._protect_last_scan = ""
         self._protect_last_delete = ""
 
         while not self._protect_stop.is_set():
             try:
-<<<<<<< HEAD
-                status, refs = await asyncio.to_thread(scanner.scan_recent_comments, self.protect_pages, 10)
-=======
                 # Re-create scanner/deleter each round with latest cookie to avoid stale cookie bugs.
                 # Fingerprint cookie without logging full value.
                 cookie_fp = "" 
@@ -1406,7 +1374,6 @@ class QzoneAutoLikePlugin(Star):
                     if await self._maybe_refresh_cookie(reason="protect scan cookie expired", event=None):
                         scanner = QzoneProtectScanner(self.my_qq, self.cookie)
                         status, refs = await asyncio.to_thread(scanner.scan_recent_comments, self.protect_pages, 10)
->>>>>>> master
                 diag = getattr(scanner, "last_diag", "")
                 errs = getattr(scanner, "last_errors", [])
                 self._protect_last_scan = f"ts={int(time.time())} status={status} refs={len(refs)}"
@@ -1425,10 +1392,7 @@ class QzoneAutoLikePlugin(Star):
                 else:
                     refs = scanner.filter_within_window(refs, self.protect_window_minutes)
 
-<<<<<<< HEAD
-=======
                     # Always use latest cookie for delete.
->>>>>>> master
                     deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
 
                     del_try = 0
@@ -1449,8 +1413,6 @@ class QzoneAutoLikePlugin(Star):
 
                         del_try += 1
                         ds, dr = await asyncio.to_thread(deleter.delete_comment, r.topic_id, r.comment_id, r.comment_uin)
-<<<<<<< HEAD
-=======
 
                         # If delete failed and looks like cookie expired, refresh once and retry.
                         if not (ds == 200 and dr.ok):
@@ -1460,7 +1422,6 @@ class QzoneAutoLikePlugin(Star):
                                     deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
                                     ds, dr = await asyncio.to_thread(deleter.delete_comment, r.topic_id, r.comment_id, r.comment_uin)
 
->>>>>>> master
                         if ds == 200 and dr.ok:
                             del_ok += 1
                             if self.protect_notify_mode == "all":
