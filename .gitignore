@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+
+# Plugin runtime data (DO NOT COMMIT)
+data/
+
+# AstrBot generated config (path may vary by deployment)
+*_config.json
+
+# OS
+.DS_Store
+Thumbs.db

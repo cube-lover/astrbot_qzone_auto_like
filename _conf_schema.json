@@ -1,0 +1,208 @@
+{
+  "my_qq": {
+    "type": "string",
+    "description": "当前登录QQ号（用于 referer/opuin；必填）",
+    "default": ""
+  },
+  "cookie": {
+    "type": "text",
+    "description": "QQ空间登录态 Cookie（至少包含 p_skey=...；可留空并启用 cookie_auto_fetch_enabled 自动获取）",
+    "default": ""
+  },
+  "cookie_auto_fetch_enabled": {
+    "type": "bool",
+    "description": "是否从 Napcat(AIOCQHTTP/OneBot) 自动获取 user.qzone.qq.com 的 Cookie（推荐开启；可配合 cookie 留空使用）",
+    "default": false
+  },
+  "cookie_auto_fetch_cooldown_sec": {
+    "type": "int",
+    "description": "自动获取 Cookie 的冷却时间（秒），避免失败时频繁刷新",
+    "default": 120
+  },
+  "target_qq": {
+    "type": "string",
+    "description": "自动轮询目标QQ空间（留空=自己的空间）",
+    "default": ""
+  },
+  "enabled": {
+    "type": "bool",
+    "description": "是否启用后台轮询点赞",
+    "default": false
+  },
+  "auto_start": {
+    "type": "bool",
+    "description": "Bot启动后自动开始后台轮询",
+    "default": true
+  },
+  "poll_interval_sec": {
+    "type": "int",
+    "description": "后台轮询间隔（秒）",
+    "default": 20
+  },
+  "like_delay_min_sec": {
+    "type": "int",
+    "description": "每次点赞最小延迟（秒）",
+    "default": 12
+  },
+  "like_delay_max_sec": {
+    "type": "int",
+    "description": "每次点赞最大延迟（秒）",
+    "default": 25
+  },
+  "max_feeds_count": {
+    "type": "int",
+    "description": "自动轮询单轮最多处理多少条（大于0）",
+    "default": 15
+  },
+  "like_ramp_step": {
+    "type": "int",
+    "description": "手动大次数点赞时的递增步长（例如10）",
+    "default": 10
+  },
+  "tid_store_max": {
+    "type": "int",
+    "description": "最多保存多少条最近发布的 tid（0=不落盘；默认200）",
+    "default": 200
+  },
+  "post_store_max": {
+    "type": "int",
+    "description": "最多保存多少条最近发布的说说正文（0=不落盘；默认200，仅用于自动评论）",
+    "default": 200
+  },
+  "comment_delay_min_sec": {
+    "type": "int",
+    "description": "评论/删评之间的最小延迟（秒）",
+    "default": 1
+  },
+  "comment_delay_max_sec": {
+    "type": "int",
+    "description": "评论/删评之间的最大延迟（秒）",
+    "default": 2
+  },
+  "protect_enabled": {
+    "type": "bool",
+    "description": "是否开启护评（后台轮询检查评论区）",
+    "default": false
+  },
+  "protect_window_minutes": {
+    "type": "int",
+    "description": "护评时间窗：动态发布后 N 分钟内才保护（<=0 表示不限制）",
+    "default": 30
+  },
+  "protect_notify_mode": {
+    "type": "string",
+    "description": "护评后台提示模式：off=不提示；error=仅失败提示；all=全部提示",
+    "default": "error"
+  },
+  "protect_poll_interval_sec": {
+    "type": "int",
+    "description": "护评轮询间隔（秒）",
+    "default": 10
+  },
+  "protect_pages": {
+    "type": "int",
+    "description": "护评每轮最多翻页页数（>=1）",
+    "default": 2
+  },
+  "ai_post_enabled": {
+    "type": "bool",
+    "description": "启用定时发说说任务（AI/固定文本二选一）",
+    "default": false
+  },
+  "ai_post_mode": {
+    "type": "string",
+    "description": "定时发说说模式：ai=使用LLM生成；fixed=固定文本（不调用LLM）",
+    "default": "fixed"
+  },
+  "ai_post_fixed_text": {
+    "type": "text",
+    "description": "fixed模式下每次发布的固定文本",
+    "default": ""
+  },
+  "ai_post_mark": {
+    "type": "bool",
+    "description": "在说说开头标注【AI发送】",
+    "default": true
+  },
+  "ai_post_provider_id": {
+    "type": "string",
+    "description": "可选：指定LLM提供商ID（留空=跟随当前会话默认提供商）",
+    "default": "",
+    "_special": "select_provider"
+  },
+  "ai_post_interval_min": {
+    "type": "int",
+    "description": "每隔多少分钟生成并发布一条说说（0=关闭interval模式）",
+    "default": 0
+  },
+  "ai_post_prompt": {
+    "type": "text",
+    "description": "interval模式的提示词（prompt），用于生成说说正文",
+    "default": "写一条不尬的QQ空间纯文字说说，1-3句，总字数<=120。"
+  },
+  "ai_post_notify_enabled": {
+    "type": "bool",
+    "description": "AI定时发说说：是否发送通知消息（默认关闭，避免刷屏）",
+    "default": false
+  },
+  "ai_post_notify_mode": {
+    "type": "string",
+    "description": "AI定时发说说：通知模式 off=不通知；error=仅失败；all=成功+失败",
+    "default": "error"
+  },
+  "ai_post_notify_private_qq": {
+    "type": "string",
+    "description": "AI定时发说说：私聊通知目标QQ（留空=不私聊）",
+    "default": ""
+  },
+  "ai_post_notify_group_id": {
+    "type": "string",
+    "description": "AI定时发说说：群通知目标群号（留空=不群发）",
+    "default": ""
+  },
+  "ai_post_delete_notify_enabled": {
+    "type": "bool",
+    "description": "AI定时删说说：是否发送通知消息（默认关闭）",
+    "default": false
+  },
+  "ai_post_delete_notify_mode": {
+    "type": "string",
+    "description": "AI定时删说说：通知模式 off=不通知；error=仅失败；all=成功+失败",
+    "default": "error"
+  },
+  "ai_post_delete_notify_private_qq": {
+    "type": "string",
+    "description": "AI定时删说说：私聊通知目标QQ（留空=不私聊）",
+    "default": ""
+  },
+  "ai_post_delete_notify_group_id": {
+    "type": "string",
+    "description": "AI定时删说说：群通知目标群号（留空=不群发）",
+    "default": ""
+  },
+  "ai_post_daily_time": {
+    "type": "string",
+    "description": "每天定时发送时间（HH:MM，24小时制；留空=关闭daily模式）",
+    "default": ""
+  },
+  "ai_post_daily_prompt": {
+    "type": "text",
+    "description": "daily模式的提示词（prompt），用于生成说说正文",
+    "default": "写一条今日简短总结（不编造事实），1-3句，总字数<=120。"
+  },
+  "ai_post_delete_after_min": {
+    "type": "int",
+    "description": "发布后多少分钟自动删除（0=不删除）",
+    "default": 0
+  },
+  "llm_tool_reply_mode": {
+    "type": "string",
+    "description": "LLM工具(qz_post/qz_delete)：回复模式 all=成功+失败都回复；error=仅失败回复；off=都不回复（仅日志）",
+    "default": "error"
+  },
+  "ai_post_last_run_ts": {
+    "type": "float",
+    "description": "AI定时发说说：上次触发时间戳（自动写入）",
+    "default": 0
+  }
+}
