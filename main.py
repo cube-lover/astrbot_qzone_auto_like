@@ -1217,8 +1217,27 @@ class QzoneAutoLikePlugin(Star):
                 await asyncio.sleep(random.randint(self.delay_min, self.delay_max) + jitter)
 
                 like_status, resp = await asyncio.to_thread(client.send_like, full_key)
+                resp = resp or ""
                 resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
                 logger.info("[Qzone] like 返回 | status=%s resp_head=%s", like_status, resp_head)
+
+                # If response does not contain expected json fields, log tail too for diagnosis.
+                if ("\"code\"" not in resp) and ("\"message\"" not in resp):
+                    resp_tail = resp[-400:].replace("\n", " ").replace("\r", " ")
+                    logger.info("[Qzone] like resp_tail=%s", resp_tail)
+
+                # Best-effort cookie refresh when response looks like login/verify page.
+                if self._looks_like_cookie_expired(like_status, resp_head) or self._looks_like_cookie_expired(like_status, resp[-800:]):
+                    if await self._maybe_refresh_cookie(reason="like cookie expired", event=None):
+                        # Rebuild client with refreshed cookie (gtk depends on skey)
+                        try:
+                            client = _QzoneClient(self.my_qq, self.cookie)
+                            like_status, resp = await asyncio.to_thread(client.send_like, full_key)
+                            resp = resp or ""
+                            resp_head = resp[:300].replace("\n", " ").replace("\r", " ")
+                            logger.info("[Qzone] like retry after refresh | status=%s resp_head=%s", like_status, resp_head)
+                        except Exception as e:
+                            logger.warning("[Qzone] like retry skipped (client rebuild failed): %s", e)
 
                 code = None
                 msg = ""
@@ -1233,7 +1252,12 @@ class QzoneAutoLikePlugin(Star):
                     msg = m2.group(1)
 
                 logger.info("[Qzone] like 结果 | code=%s msg=%s", code, msg)
-                if msg and "记录成功" in msg:
+
+                # If code is missing, we cannot trust this as success.
+                if code is None:
+                    logger.warning("[Qzone] like parse failed (no code); treat as failure")
+                    ok = False
+                elif msg and "记录成功" in msg:
                     ok = False
                 else:
                     ok = code == 0
@@ -1345,6 +1369,12 @@ class QzoneAutoLikePlugin(Star):
                         raise
 
                 status, refs = await asyncio.to_thread(scanner.scan_recent_comments, self.protect_pages, 10)
+
+                # If protect scan failed in a way that looks like cookie expired, refresh once and retry.
+                if status != 200 and (self._looks_like_cookie_expired(status, getattr(scanner, 'last_diag', '')) or self._looks_like_cookie_expired(status, ' '.join(getattr(scanner, 'last_errors', [])[:2]))):
+                    if await self._maybe_refresh_cookie(reason="protect scan cookie expired", event=None):
+                        scanner = QzoneProtectScanner(self.my_qq, self.cookie)
+                        status, refs = await asyncio.to_thread(scanner.scan_recent_comments, self.protect_pages, 10)
                 diag = getattr(scanner, "last_diag", "")
                 errs = getattr(scanner, "last_errors", [])
                 self._protect_last_scan = f"ts={int(time.time())} status={status} refs={len(refs)}"
@@ -1384,6 +1414,15 @@ class QzoneAutoLikePlugin(Star):
 
                         del_try += 1
                         ds, dr = await asyncio.to_thread(deleter.delete_comment, r.topic_id, r.comment_id, r.comment_uin)
+
+                        # If delete failed and looks like cookie expired, refresh once and retry.
+                        if not (ds == 200 and dr.ok):
+                            hint = str(getattr(dr, 'message', '') or '')
+                            if self._looks_like_cookie_expired(ds, hint):
+                                if await self._maybe_refresh_cookie(reason="protect delete cookie expired", event=None):
+                                    deleter = QzoneCommentDeleter(self.my_qq, self.cookie)
+                                    ds, dr = await asyncio.to_thread(deleter.delete_comment, r.topic_id, r.comment_id, r.comment_uin)
+
                         if ds == 200 and dr.ok:
                             del_ok += 1
                             if self.protect_notify_mode == "all":
