@@ -1619,6 +1619,12 @@ class QzoneAutoLikePlugin(Star):
                 new_cookie = await self.cookie_fetcher.refresh(reason="autostart first message", event=event)
                 if new_cookie:
                     self.cookie = new_cookie
+                    # If protect is enabled, start protect task once cookie becomes available.
+                    try:
+                        await self._maybe_start_protect_task()
+                    except Exception:
+                        pass
+
                     self._stop_event.clear()
                     self._task = asyncio.create_task(self._worker())
                     logger.info("[Qzone] auto_start: started on first message")
