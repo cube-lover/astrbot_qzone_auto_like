@@ -1634,6 +1634,81 @@ class QzoneAutoLikePlugin(Star):
         # Intercept a few high-signal phrases early to prevent tool-loop agents from replying without
         # actually calling qz_delete/qz_post.
         raw = (event.message_str or "").strip()
+
+        # --- Natural-language quick comment to latest post (manual content) ---
+        # Purpose: allow "口语化" triggering without relying on LLM tool-calling.
+        # Safety: only under comma-prefix (，/,) + explicit keywords + explicit target (latest).
+        try:
+            if raw.startswith("，") or raw.startswith(","):
+                _t = raw[1:].lstrip()
+                _norm = "".join(ch for ch in _t.strip().lower() if ch not in ("\u200b", "\ufeff"))
+                _intent = any(k in _norm for k in ("评论", "留一句", "留个言", "回一句"))
+                _target = any(k in _norm for k in ("刚刚", "最新", "最近", "上一条"))
+                if _intent and _target:
+                    import re as _re
+                    # Extract comment content from patterns like:
+                    # - 给刚刚那条说说评论：xxx
+                    # - 最新那条留一句 xxx
+                    _content = ""
+                    m = _re.search(r"(?:评论|留一句|留个言|回一句)\s*[:：]\s*(.+)$", _t)
+                    if m:
+                        _content = (m.group(1) or "").strip()
+                    if not _content:
+                        # Fallback: take text after the intent keyword.
+                        for kw in ("评论", "留一句", "留个言", "回一句"):
+                            if kw in _t:
+                                _content = _t.split(kw, 1)[1].strip(" ：:，,\t")
+                                break
+                    if _content:
+                        if len(_content) > 60:
+                            _content = _content[:60].rstrip()
+                        if self.my_qq and self.cookie:
+                            tid = ""
+                            if getattr(self, "_recent_posts", None):
+                                try:
+                                    tid = str(self._recent_posts[-1].get("tid") or "").strip()
+                                except Exception:
+                                    tid = ""
+                            if not tid and getattr(self, "_last_tid", ""):
+                                tid = str(self._last_tid).strip()
+
+                            if tid:
+                                try:
+                                    commenter = QzoneCommenter(self.my_qq, self.cookie)
+                                    status, result = await asyncio.to_thread(commenter.add_comment, tid, _content)
+                                    logger.info(
+                                        "[Qzone] nl_comment 返回 | status=%s ok=%s code=%s msg=%s tid=%s head=%s",
+                                        status,
+                                        getattr(result, "ok", False),
+                                        getattr(result, "code", ""),
+                                        getattr(result, "message", ""),
+                                        tid,
+                                        getattr(result, "raw_head", ""),
+                                    )
+                                    if status == 200 and getattr(result, "ok", False):
+                                        await event.send(event.plain_result(f"✅ 已评论最新说说 tid={tid}"))
+                                    else:
+                                        hint = getattr(result, "message", "") or "评论失败（可能 cookie/风控/验证页）"
+                                        await event.send(event.plain_result(f"❌ 评论失败：status={status} code={getattr(result,'code','')} msg={hint}"))
+                                    try:
+                                        event.stop_event()
+                                    except Exception:
+                                        pass
+                                    return
+                                except Exception as e:
+                                    logger.error(f"[Qzone] nl_comment 异常: {e}")
+                                    logger.error(traceback.format_exc())
+                                    try:
+                                        await event.send(event.plain_result(f"❌ 评论异常：{e}"))
+                                    except Exception:
+                                        pass
+                                    try:
+                                        event.stop_event()
+                                    except Exception:
+                                        pass
+                                    return
+        except Exception:
+            pass
         if not raw:
             return
 
