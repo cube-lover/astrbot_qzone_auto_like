@@ -1576,6 +1576,16 @@ class QzoneAutoLikePlugin(Star):
         if self._protect_task is not None:
             task_state = "done" if self._protect_task.done() else "running"
 
+        # If protect is enabled but task is not running, try to start it (best-effort).
+        if self.protect_enabled and (not protect_running):
+            try:
+                await self._maybe_start_protect_task()
+            except Exception:
+                pass
+            protect_running = self._protect_task is not None and (not self._protect_task.done())
+            if self._protect_task is not None:
+                task_state = "done" if self._protect_task.done() else "running"
+
         lines = [
             f"护评 enabled={self.protect_enabled} running={protect_running} task={task_state}",
             f"interval={self.protect_poll_interval}s pages={self.protect_pages} window_min={self.protect_window_minutes} notify={self.protect_notify_mode}",
@@ -1968,7 +1978,11 @@ class QzoneAutoLikePlugin(Star):
                 except Exception as e:
                     lines.append(f"module_fetch_error: {e}")
 
-            yield event.plain_result("\n".join(lines))
+            # Avoid huge payload / forward-node failures: clamp output length.
+            text = "\n".join(lines)
+            if len(text) > 1500:
+                text = text[:1500] + "\n...（输出过长已截断；详情请看后台日志）"
+            yield event.plain_result(text)
         except Exception as e:
             logger.error(f"[Qzone] protect scan once 异常: {e}")
             logger.error(traceback.format_exc())
