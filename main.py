@@ -1635,6 +1635,7 @@ class QzoneAutoLikePlugin(Star):
             pass
 
         # Auto-start on first message if enabled+auto_start is on but cookie was missing at load time.
+        # NOTE: do not require _client pre-captured; refresh() can also try call_api from event.
         try:
             if (
                 self.auto_start
@@ -1644,7 +1645,6 @@ class QzoneAutoLikePlugin(Star):
                 and (not self.cookie)
                 and getattr(self, "cookie_fetcher", None)
                 and self.cookie_fetcher.enabled
-                and getattr(self.cookie_fetcher, "_client", None)
             ):
                 new_cookie = await self.cookie_fetcher.refresh(reason="autostart first message", event=event)
                 if new_cookie:
