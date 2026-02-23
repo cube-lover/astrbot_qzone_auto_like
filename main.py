@@ -1164,6 +1164,8 @@ class QzoneAutoLikePlugin(Star):
 
             if not keys:
                 # keys=0 且 text_len 很短时，通常是权限/风控/返回结构变化；打印片段方便排查。
+                head = ""
+                head_status = None
                 try:
                     res = await asyncio.to_thread(
                         requests.get,
@@ -1178,10 +1180,38 @@ class QzoneAutoLikePlugin(Star):
                         headers=client.headers,
                         timeout=20,
                     )
+                    head_status = res.status_code
                     head = (res.text or "")[:300].replace("\n", " ").replace("\r", " ")
                     logger.info("[Qzone] feeds head | status=%s head=%s", res.status_code, head)
                 except Exception as e:
                     logger.warning("[Qzone] feeds head 获取失败: %s", e)
+
+                # If feeds looks like cookie expired (e.g. Not log in), refresh and rebuild client once.
+                try:
+                    if (
+                        (head_status is not None and self._looks_like_cookie_expired(int(head_status), head))
+                        or (head and ("Not log in" in head or "\"code\":-4001" in head or "\"subcode\":-4001" in head))
+                    ):
+                        if await self._maybe_refresh_cookie(reason="feeds cookie expired", event=None):
+                            try:
+                                client = _QzoneClient(self.my_qq, self.cookie)
+                                # retry once with refreshed cookie
+                                if dedup:
+                                    status, keys, text_len = await asyncio.to_thread(client.fetch_keys_self_legacy, cur_count)
+                                else:
+                                    status, keys, text_len = await asyncio.to_thread(client.fetch_keys, cur_count, target)
+                                logger.info(
+                                    "[Qzone] feeds retry after refresh | target=%s status=%s text_len=%s keys=%d count=%d",
+                                    target,
+                                    status,
+                                    text_len,
+                                    len(keys),
+                                    cur_count,
+                                )
+                            except Exception as e:
+                                logger.warning("[Qzone] feeds retry skipped (client rebuild failed): %s", e)
+                except Exception:
+                    pass
 
             if status != 200:
                 logger.warning("[Qzone] feeds 非200，可能登录失效/风控/重定向（请检查cookie）")
